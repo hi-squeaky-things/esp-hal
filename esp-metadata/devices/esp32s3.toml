@@ -82,6 +82,7 @@ peripherals = [
     { name = "SW_INTERRUPT", virtual = true },
     { name = "ULP_RISCV_CORE", virtual = true },
     { name = "WIFI", virtual = true },
+    { name = "TOUCH", virtual = true },
 ]
 
 symbols = [
@@ -93,6 +94,7 @@ symbols = [
     "octal_psram",
     "swd",
     "ulp_riscv_core",
+    "touch",
 
     # ROM capabilities
     "rom_crc_le",
@@ -697,8 +699,7 @@ instances = [
 ]
 ram_size = 128
 
-[device.touch]
-support_status = "not_supported"
+
 
 [device.ds]
 support_status = "not_supported"
@@ -723,6 +724,8 @@ apb_cycle_wait_num = 16 # TODO
 [device.twai]
 [device.usb_otg]
 [device.usb_serial_jtag]
+[device.touch]
+
 
 ## Miscellaneous
 [device.dma]

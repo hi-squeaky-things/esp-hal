@@ -16,6 +16,8 @@ esp-println = { path = "../../../esp-println", features = ["log-04"] }
 
 [features]
 esp32 = ["esp-backtrace/esp32", "esp-bootloader-esp-idf/esp32", "esp-hal/esp32"]
+esp32s3 = ["esp-backtrace/esp32s3", "esp-bootloader-esp-idf/esp32s3", "esp-hal/esp32s3"]
+
 
 [profile.release]
 debug            = true
