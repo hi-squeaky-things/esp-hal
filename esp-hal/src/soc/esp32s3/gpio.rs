@@ -169,6 +169,7 @@ macro_rules! touch {
                     .write(|w| unsafe { w.enable_w1tc().bits(1 << self.rtc_number()) });
 
 
+                // set theshold to zero
                 sens.$touch_thres_reg().write(|w| unsafe {
                             w.bits( 0b0 )
                         });
@@ -199,10 +200,8 @@ macro_rules! touch {
                 $touch_num
             }
 
-
-
             fn set_threshold(&self, threshold: u16, _: $crate::private::Internal) {
-                unsafe { $crate::peripherals::SENS::regs() }
+                $crate::peripherals::SENS::regs()
                         .$touch_thres_reg().write(|w| unsafe {
                             w.bits(threshold as u32)
                         });

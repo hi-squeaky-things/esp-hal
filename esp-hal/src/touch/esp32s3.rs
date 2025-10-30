@@ -440,13 +440,26 @@ impl<P: TouchPin> TouchPad<P, OneShot, Blocking> {
     /// calling [`read`](Self::read) once it is finished.
     pub fn start_measurement(&mut self) {
         let sens = SENS::regs();
+        let rtccntl = LPWR::regs();
 
-        unsafe { &*crate::peripherals::RTC_CNTL::PTR }
-            .touch_ctrl2()
-            .modify(|_, w| w.touch_start_en().clear_bit());
-        unsafe { &*crate::peripherals::RTC_CNTL::PTR }
+
+        rtccntl
             .touch_ctrl2()
             .modify(|_, w| w.touch_start_en().set_bit());
+        rtccntl
+            .touch_ctrl2()
+            .modify(|_, w| w.touch_start_en().clear_bit());
+     unsafe {
+        rtccntl
+            .touch_ctrl2()
+            .write(|w| w.touch_timer_force_done().bits(0x3));
+        rtccntl
+            .touch_ctrl2()
+            .write(|w| w.touch_timer_force_done().bits(0));
+     }
+        rtccntl
+             .touch_ctrl2()
+             .modify(|r, w| w.touch_slp_timer_en().bit(!r.touch_start_force().bit()));
     }
 }
 impl<P: TouchPin, Tm: TouchMode, Dm: DriverMode> TouchPad<P, Tm, Dm> {
