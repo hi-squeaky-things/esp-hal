@@ -481,8 +481,13 @@ pub trait TouchPin: Pin {
     fn set_touch(&self, _: private::Internal);
 
     /// Reads the pin's touch measurement register
+    #[cfg(any(esp32))]
     #[doc(hidden)]
     fn touch_measurement(&self, _: private::Internal) -> u16;
+
+    #[cfg(any(esp32s3))]
+    #[doc(hidden)]
+    fn touch_measurement(&self, _: private::Internal) -> u32;
 
     /// Maps the pin nr to the touch pad nr
     #[doc(hidden)]
