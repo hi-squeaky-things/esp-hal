@@ -175,6 +175,7 @@ macro_rules! touch {
                         });
 
                 rtcio.touch_pad($touch_num).write(|w| unsafe {
+                    // give the touch pad some power
                     w.xpd().set_bit();
                     // clear input_enable
                     w.fun_ie().clear_bit();
@@ -233,3 +234,5 @@ fn enable_iomux_clk_gate() {
         .sar_peri_clk_gate_conf()
         .modify(|_, w| w.iomux_clk_en().set_bit());
 }
+
+
