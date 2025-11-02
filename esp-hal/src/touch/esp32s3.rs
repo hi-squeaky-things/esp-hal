@@ -103,28 +103,26 @@ impl<Tm: TouchMode, Dm: DriverMode> Touch<'_, Tm, Dm> {
             }
         }
 
-
-
         touch_ll_stop_fsm();
         touch_ll_intr_disable();
         touch_ll_intr_clear();
         touch_ll_clear_channel_mask();
         touch_ll_clear_trigger_status_mask();
         touch_ll_set_meas_times(TOUCH_PAD_MEASURE_CYCLE_DEFAULT);
+        touch_ll_set_sleep_time(TOUCH_PAD_SLEEP_CYCLE_DEFAULT);
 
-        
+        // Configure the touch-sensor power domain into self-bias since bandgap-bias
+        // level is different under sleep-mode compared to running-mode. self-bias is
+        // always on after chip startup.
+
+        touch_ll_sleep_low_power(true);
+        //touch_ll_set_voltage_high(TOUCH_PAD_HIGH_VOLTAGE_THRESHOLD);
+        //touch_ll_set_voltage_low(TOUCH_PAD_LOW_VOLTAGE_THRESHOLD);
+        //touch_ll_set_voltage_attenuation(TOUCH_PAD_ATTEN_VOLTAGE_THRESHOLD);
+        //touch_ll_set_idle_channel_connect(TOUCH_PAD_IDLE_CH_CONNECT_DEFAULT);
+
         /*
-      
 
-        // set sleep time
-        unsafe {
-            rtccntl
-                .touch_ctrl1()
-                .write(|w| w.touch_sleep_cycles().bits(0xf));
-        }
-
-        // touch_ll_sleep_low_power true
-        rtccntl.touch_ctrl2().write(|w| w.touch_dbias().set_bit());
 
         // set low and high treshold
         unsafe {
@@ -580,9 +578,75 @@ fn internal_is_interrupt_set(touch_nr: u8) -> bool {
 
 const TOUCH_LL_TIMER_FORCE_DONE: u8 = 0x3;
 const TOUCH_LL_TIMER_DONE: u8 = 0x0;
-const TOUCH_PAD_MEASURE_CYCLE_DEFAULT:u16 = 500;
-const TOUCH_PAD_SLEEP_CYCLE_DEFAULT:u8 = 0xF;
-const TOUCH_LL_PAD_MEASURE_WAIT_MAX:u8 = 0xFF; 
+const TOUCH_PAD_MEASURE_CYCLE_DEFAULT: u16 = 500;
+const TOUCH_PAD_SLEEP_CYCLE_DEFAULT: u16 = 0xF;
+const TOUCH_LL_PAD_MEASURE_WAIT_MAX: u8 = 0xFF;
+
+#[repr(i8)]
+enum TouchLowVolt {
+    // Touch sensor low reference voltage, no change
+    TOUCH_LVOLT_KEEP = -1,
+
+    // Touch sensor low reference voltage, 0.5V
+    TOUCH_LVOLT_0V5 = 0,
+
+    // Touch sensor low reference voltage, 0.6V
+    TOUCH_LVOLT_0V6,
+
+    // Touch sensor low reference voltage, 0.7V
+    TOUCH_LVOLT_0V7,
+
+    // Touch sensor low reference voltage, 0.8V
+    TOUCH_LVOLT_0V8,
+
+    // Maximum
+    TOUCH_LVOLT_MAX,
+}
+
+#[repr(i8)]
+enum TouchHighVolt {
+    // Touch sensor high reference voltage, no change
+    TOUCH_HVOLT_KEEP = -1,
+
+    // Touch sensor high reference voltage, 2.4V
+    TOUCH_HVOLT_2V4 = 0,
+
+    // Touch sensor high reference voltage, 2.5V
+    TOUCH_HVOLT_2V5,
+
+    // Touch sensor high reference voltage, 2.6V
+    TOUCH_HVOLT_2V6,
+
+    // Touch sensor high reference voltage, 2.7V
+    TOUCH_HVOLT_2V7,
+
+    // Maximum
+    TOUCH_HVOLT_MAX,
+}
+
+// Touch sensor high reference voltage attenuation
+#[repr(i8)]
+enum TouchHVoltAtten {
+    TOUCH_HVOLT_ATTEN_KEEP = -1, // no change
+    TOUCH_HVOLT_ATTEN_1V5 = 0,   // 1.5V attenuation
+    TOUCH_HVOLT_ATTEN_1V,        // 1.0V attenuation
+    TOUCH_HVOLT_ATTEN_0V5,       // 0.5V attenuation
+    TOUCH_HVOLT_ATTEN_0V,        //  0V attenuation
+    TOUCH_HVOLT_ATTEN_MAX,
+}
+
+// Touch channel idle state configuration
+#[repr(i8)]
+enum TouchPadConnType {
+    TOUCH_PAD_CONN_HIGHZ = 0, //touch channel is high resistance state
+    TOUCH_PAD_CONN_GND = 1,   //touch channel is ground connection
+    TOUCH_PAD_CONN_MAX,
+}
+
+const TOUCH_PAD_HIGH_VOLTAGE_THRESHOLD: TouchHighVolt = TouchHighVolt::TOUCH_HVOLT_2V7; //TOUCH_HVOLT_2V7)
+const TOUCH_PAD_LOW_VOLTAGE_THRESHOLD: TouchLowVolt = TouchLowVolt::TOUCH_LVOLT_0V5; //   (TOUCH_LVOLT_0V5)
+const TOUCH_PAD_ATTEN_VOLTAGE_THRESHOLD: TouchHVoltAtten = TouchHVoltAtten::TOUCH_HVOLT_ATTEN_0V5; // (TOUCH_HVOLT_ATTEN_0V5)
+const TOUCH_PAD_IDLE_CH_CONNECT_DEFAULT: TouchPadConnType = TouchPadConnType::TOUCH_PAD_CONN_GND; //  (TOUCH_PAD_CONN_GND)
 
 // Stop touch sensor FSM timer.
 // The measurement action can be triggered by the hardware timer, as well as by the software instruction.
@@ -703,7 +767,7 @@ fn touch_ll_intr_clear() {
     }
     */
 
-     LPWR::regs().int_clr().write(|w| unsafe {
+    LPWR::regs().int_clr().write(|w| unsafe {
         w.touch_done()
             .clear_bit_by_one()
             .touch_active()
@@ -726,48 +790,70 @@ fn touch_ll_clear_channel_mask() {
     RTCCNTL.touch_scan_ctrl.touch_scan_pad_map  &= ~(disable_mask & TOUCH_PAD_BIT_MASK_ALL);
      */
 
-    SENS::regs().sar_touch_conf().write(|w| unsafe {
-            w.sar_touch_outen().bits(0x0)
-    });
+    SENS::regs()
+        .sar_touch_conf()
+        .write(|w| unsafe { w.sar_touch_outen().bits(0x0) });
 
-    LPWR::regs().touch_scan_ctrl().write(|w| unsafe {
-        w.touch_scan_pad_map().bits(0x0)
-    });
+    LPWR::regs()
+        .touch_scan_ctrl()
+        .write(|w| unsafe { w.touch_scan_pad_map().bits(0x0) });
 }
 
 // Clear all touch sensor status.
 fn touch_ll_clear_trigger_status_mask() {
-    /*  
+    /*
 
     SENS.sar_touch_conf.touch_status_clr = 1;
 
      */
 
-    SENS::regs().sar_touch_conf().write(|w| unsafe {
-            w.sar_touch_status_clr().set_bit()
-    });
+    SENS::regs()
+        .sar_touch_conf()
+        .write(|w| unsafe { w.sar_touch_status_clr().set_bit() });
 }
-
 
 // Set touch sensor touch sensor times of charge and discharge.
 // @param meas_timers The times of charge and discharge in each measure process of touch channels.
 //                     The timer frequency is 8Mhz. Range: 0 ~ 0xffff.
-fn touch_ll_set_meas_times(meas_time: u16)
-{
-    /* 
+fn touch_ll_set_meas_times(meas_time: u16) {
+    /*
     //The times of charge and discharge in each measure process of touch channels.
     HAL_FORCE_MODIFY_U32_REG_FIELD(RTCCNTL.touch_ctrl1, touch_meas_num, meas_time);
     //the waiting cycles (in 8MHz) between TOUCH_START and TOUCH_XPD
     HAL_FORCE_MODIFY_U32_REG_FIELD(RTCCNTL.touch_ctrl2, touch_xpd_wait, TOUCH_LL_PAD_MEASURE_WAIT_MAX); //wait volt stable
     */
-     LPWR::regs().touch_ctrl1().write(|w| unsafe {
-        w.touch_meas_num().bits(meas_time)
-     });
-     LPWR::regs().touch_ctrl2().write(|w| unsafe {
-        w.touch_xpd_wait().bits(TOUCH_LL_PAD_MEASURE_WAIT_MAX)
-     });
+    LPWR::regs()
+        .touch_ctrl1()
+        .write(|w| unsafe { w.touch_meas_num().bits(meas_time) });
+    LPWR::regs()
+        .touch_ctrl2()
+        .write(|w| unsafe { w.touch_xpd_wait().bits(TOUCH_LL_PAD_MEASURE_WAIT_MAX) });
 }
 
+//  Set touch sensor sleep time.
+// The touch sensor will sleep after each measurement.
+//    sleep_cycle decide the interval between each measurement.
+//                     t_sleep = sleep_cycle / (RTC_SLOW_CLK frequency).
+fn touch_ll_set_sleep_time(sleep_time: u16) {
+    /*
+    // touch sensor sleep cycle Time = sleep_cycle / RTC_SLOW_CLK(150k)
+    HAL_FORCE_MODIFY_U32_REG_FIELD(RTCCNTL.touch_ctrl1, touch_sleep_cycles, sleep_time);
+    */
+    LPWR::regs()
+        .touch_ctrl1()
+        .write(|w| unsafe { w.touch_sleep_cycles().bits(sleep_time) });
+}
+
+// Select touch sensor dbias to save power in sleep mode
+// If change the dbias, the reading of touch sensor will changed. Users should make sure the threshold.
+fn touch_ll_sleep_low_power(is_low_power: bool) {
+    /*
+        RTCCNTL.touch_ctrl2.touch_dbias = is_low_power;
+    */
+    LPWR::regs()
+        .touch_ctrl2()
+        .write(|w| unsafe { w.touch_dbias().bit(is_low_power) });
+}
 
 mod asynch {
     use core::{
