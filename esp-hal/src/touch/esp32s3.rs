@@ -28,9 +28,7 @@
 use core::marker::PhantomData;
 
 use crate::{
-    Async,
-    Blocking,
-    DriverMode,
+    Async, Blocking, DriverMode,
     gpio::TouchPin,
     peripherals::{LPWR, SENS, TOUCH},
     private::{Internal, Sealed},
@@ -91,9 +89,6 @@ pub struct Touch<'d, Tm: TouchMode, Dm: DriverMode> {
 impl<Tm: TouchMode, Dm: DriverMode> Touch<'_, Tm, Dm> {
     /// Common initialization of the touch peripheral.
     fn initialize_common(config: Option<TouchConfig>) {
-        let rtccntl = LPWR::regs();
-        let sens = SENS::regs();
-
         let mut threshold_mode = false;
         let mut meas_dur = 0x7fff;
 
@@ -108,74 +103,18 @@ impl<Tm: TouchMode, Dm: DriverMode> Touch<'_, Tm, Dm> {
             }
         }
 
-        unsafe {
-            rtccntl.touch_ctrl2().write(|w| {
-                w.touch_start_en()
-                    .clear_bit()
-                    .touch_slp_timer_en()
-                    .clear_bit()
-            });
 
-            rtccntl
-                .touch_ctrl2()
-                .write(|w| w.touch_timer_force_done().bits(0x3));
-            rtccntl
-                .touch_ctrl2()
-                .write(|w| w.touch_timer_force_done().bits(0x0));
-        }
 
-        // Disable touch interrupt
-        rtccntl.int_ena_rtc_w1tc().write(|w| {
-            w.touch_done()
-                .clear_bit_by_one()
-                .touch_active()
-                .clear_bit_by_one()
-                .touch_inactive()
-                .clear_bit_by_one()
-                .touch_scan_done()
-                .clear_bit_by_one()
-                .touch_timeout()
-                .clear_bit_by_one()
-                .touch_approach_loop_done()
-                .clear_bit_by_one()
-        });
-        // Clear pending interrupts
-        rtccntl.int_clr().write(|w| {
-            w.touch_done()
-                .clear_bit_by_one()
-                .touch_active()
-                .clear_bit_by_one()
-                .touch_inactive()
-                .clear_bit_by_one()
-                .touch_scan_done()
-                .clear_bit_by_one()
-                .touch_timeout()
-                .clear_bit_by_one()
-                .touch_approach_loop_done()
-                .clear_bit_by_one()
-        });
+        touch_ll_stop_fsm();
+        touch_ll_intr_disable();
+        touch_ll_intr_clear();
+        touch_ll_clear_channel_mask();
+        touch_ll_clear_trigger_status_mask();
+        touch_ll_set_meas_times(TOUCH_PAD_MEASURE_CYCLE_DEFAULT);
 
-        // clear channel mask
-        unsafe {
-            sens.sar_touch_conf().write(|w| w.sar_touch_outen().bits(0));
-            rtccntl
-                .touch_scan_ctrl()
-                .write(|w| w.touch_scan_pad_map().bits(0));
-        }
-
-        // clear_trigger_status_mask
-        sens.sar_touch_conf()
-            .write(|w| w.sar_touch_status_clr().set_bit());
-
-        // set meas time
-        rtccntl
-            .touch_ctrl1()
-            .write(|w| unsafe { w.touch_meas_num().bits(500) });
-        unsafe {
-            rtccntl
-                .touch_ctrl2()
-                .write(|w| w.touch_xpd_wait().bits(0xff));
-        }
+        
+        /*
+      
 
         // set sleep time
         unsafe {
@@ -252,7 +191,7 @@ impl<Tm: TouchMode, Dm: DriverMode> Touch<'_, Tm, Dm> {
                     .touch_pad14_dac()
                     .bits(7)
             });
-        }
+        }*/
     }
 
     /// Common parts of the continuous mode initialization.
@@ -322,34 +261,34 @@ impl<'d> Touch<'d, OneShot, Blocking> {
     /// # {after_snippet}
     /// ```
     pub fn one_shot_mode(touch_peripheral: TOUCH<'d>, config: Option<TouchConfig>) -> Self {
-        let rtccntl = LPWR::regs();
-        let sens = SENS::regs();
+        /*       let rtccntl = LPWR::regs();
+                let sens = SENS::regs();
 
-        // Default nr of sleep cycles from IDF
-        let mut sleep_cyc = 0x1000;
-        if let Some(config) = config
-            && let Some(slp) = config.sleep_cycles
-        {
-            sleep_cyc = slp;
-        }
-
+                // Default nr of sleep cycles from IDF
+                let mut sleep_cyc = 0x1000;
+                if let Some(config) = config
+                    && let Some(slp) = config.sleep_cycles
+                {
+                    sleep_cyc = slp;
+                }
+        */
         Self::initialize_common(config);
+        /*
+                rtccntl
+                    .touch_ctrl1()
+                    .write(|w| unsafe { w.touch_sleep_cycles().bits(sleep_cyc) });
 
-        rtccntl
-            .touch_ctrl1()
-            .write(|w| unsafe { w.touch_sleep_cycles().bits(sleep_cyc) });
-
-        rtccntl.touch_ctrl2().write(|w| {
-            w
-                // Configure FSM for SW mode
-                .touch_start_fsm_en()
-                .set_bit()
-                .touch_start_en()
-                .clear_bit()
-                .touch_start_force()
-                .set_bit()
-        });
-
+                rtccntl.touch_ctrl2().write(|w| {
+                    w
+                        // Configure FSM for SW mode
+                        .touch_start_fsm_en()
+                        .set_bit()
+                        .touch_start_en()
+                        .clear_bit()
+                        .touch_start_force()
+                        .set_bit()
+                });
+        */
         Self {
             _inner: touch_peripheral,
             _mode: PhantomData,
@@ -442,24 +381,12 @@ impl<P: TouchPin> TouchPad<P, OneShot, Blocking> {
         let sens = SENS::regs();
         let rtccntl = LPWR::regs();
 
-
-        rtccntl
-            .touch_ctrl2()
-            .modify(|_, w| w.touch_start_en().set_bit());
-        rtccntl
-            .touch_ctrl2()
-            .modify(|_, w| w.touch_start_en().clear_bit());
-     unsafe {
-        rtccntl
-            .touch_ctrl2()
-            .write(|w| w.touch_timer_force_done().bits(0x3));
-        rtccntl
-            .touch_ctrl2()
-            .write(|w| w.touch_timer_force_done().bits(0));
-     }
-        rtccntl
-             .touch_ctrl2()
-             .modify(|r, w| w.touch_slp_timer_en().bit(!r.touch_start_force().bit()));
+        rtccntl.touch_ctrl2().write(|w| {
+            w
+                // Configure FSM for SW mode
+                .touch_start_en()
+                .set_bit()
+        });
     }
 }
 impl<P: TouchPin, Tm: TouchMode, Dm: DriverMode> TouchPad<P, Tm, Dm> {
@@ -650,6 +577,197 @@ fn internal_pins_touched() -> u16 {
 fn internal_is_interrupt_set(touch_nr: u8) -> bool {
     internal_pins_touched() & (1 << touch_nr) != 0
 }
+
+const TOUCH_LL_TIMER_FORCE_DONE: u8 = 0x3;
+const TOUCH_LL_TIMER_DONE: u8 = 0x0;
+const TOUCH_PAD_MEASURE_CYCLE_DEFAULT:u16 = 500;
+const TOUCH_PAD_SLEEP_CYCLE_DEFAULT:u8 = 0xF;
+const TOUCH_LL_PAD_MEASURE_WAIT_MAX:u8 = 0xFF; 
+
+// Stop touch sensor FSM timer.
+// The measurement action can be triggered by the hardware timer, as well as by the software instruction.
+fn touch_ll_stop_fsm() {
+    // taken from idf - esp32s3/hal/include/touch_sensor_ll.h
+    /*
+       RTCCNTL.touch_ctrl2.touch_start_en = 0; //stop touch fsm
+       RTCCNTL.touch_ctrl2.touch_slp_timer_en = 0;
+       RTCCNTL.touch_ctrl2.touch_timer_force_done = TOUCH_LL_TIMER_FORCE_DONE;
+       RTCCNTL.touch_ctrl2.touch_timer_force_done = TOUCH_LL_TIMER_DONE;
+
+       #define TOUCH_LL_READ_RAW           0x0
+       #define TOUCH_LL_READ_BENCHMARK     0x2
+       #define TOUCH_LL_READ_SMOOTH        0x3
+       #define TOUCH_LL_TIMER_FORCE_DONE   0x3
+       #define TOUCH_LL_TIMER_DONE         0x0
+    */
+    LPWR::regs().touch_ctrl2().write(|w| unsafe {
+        w.touch_start_en()
+            .clear_bit()
+            .touch_slp_timer_en()
+            .clear_bit()
+            .touch_timer_force_done()
+            .bits(TOUCH_LL_TIMER_FORCE_DONE)
+            .touch_timer_force_done()
+            .bits(TOUCH_LL_TIMER_DONE)
+    });
+}
+
+// To disable touch pad interrupt.
+fn touch_ll_intr_disable() {
+    // taken from idf - esp32s3/hal/include/touch_sensor_ll.h
+    /*
+
+    // TODO: replace by ll macro
+    typedef enum {
+        TOUCH_PAD_INTR_MASK_DONE = BIT(0),      /*!<Measurement done for one of the enabled channels. */
+        TOUCH_PAD_INTR_MASK_ACTIVE = BIT(1),    /*!<Active for one of the enabled channels. */
+        TOUCH_PAD_INTR_MASK_INACTIVE = BIT(2),  /*!<Inactive for one of the enabled channels. */
+        TOUCH_PAD_INTR_MASK_SCAN_DONE = BIT(3), /*!<Measurement done for all the enabled channels. */
+        TOUCH_PAD_INTR_MASK_TIMEOUT = BIT(4),   /*!<Timeout for one of the enabled channels. */
+    #if SOC_TOUCH_PROXIMITY_MEAS_DONE_SUPPORTED
+        TOUCH_PAD_INTR_MASK_PROXI_MEAS_DONE = BIT(5),   /*!<For proximity sensor, when the number of measurements reaches the set count of measurements, an interrupt will be generated. */
+        TOUCH_PAD_INTR_MASK_MAX
+    #define TOUCH_PAD_INTR_MASK_ALL (TOUCH_PAD_INTR_MASK_TIMEOUT    \
+                                    | TOUCH_PAD_INTR_MASK_SCAN_DONE \
+                                    | TOUCH_PAD_INTR_MASK_INACTIVE  \
+                                    | TOUCH_PAD_INTR_MASK_ACTIVE    \
+                                    | TOUCH_PAD_INTR_MASK_DONE      \
+                                    | TOUCH_PAD_INTR_MASK_PROXI_MEAS_DONE) /*!<All touch interrupt type enable. */
+    #else
+        TOUCH_PAD_INTR_MASK_MAX
+    #define TOUCH_PAD_INTR_MASK_ALL (TOUCH_PAD_INTR_MASK_TIMEOUT    \
+                                    | TOUCH_PAD_INTR_MASK_SCAN_DONE \
+                                    | TOUCH_PAD_INTR_MASK_INACTIVE  \
+                                    | TOUCH_PAD_INTR_MASK_ACTIVE    \
+                                    | TOUCH_PAD_INTR_MASK_DONE) /*!<All touch interrupt type enable. */
+
+
+
+          if (int_mask & TOUCH_PAD_INTR_MASK_DONE) {
+            RTCCNTL.int_ena_w1tc.rtc_touch_done_w1tc = 1;
+        }
+        if (int_mask & TOUCH_PAD_INTR_MASK_ACTIVE) {
+            RTCCNTL.int_ena_w1tc.rtc_touch_active_w1tc = 1;
+        }
+        if (int_mask & TOUCH_PAD_INTR_MASK_INACTIVE) {
+            RTCCNTL.int_ena_w1tc.rtc_touch_inactive_w1tc = 1;
+        }
+        if (int_mask & TOUCH_PAD_INTR_MASK_SCAN_DONE) {
+            RTCCNTL.int_ena_w1tc.rtc_touch_scan_done_w1tc = 1;
+        }
+        if (int_mask & TOUCH_PAD_INTR_MASK_TIMEOUT) {
+            RTCCNTL.int_ena_w1tc.rtc_touch_timeout_w1tc = 1;
+        }
+        if (int_mask & TOUCH_PAD_INTR_MASK_PROXI_MEAS_DONE) {
+            RTCCNTL.int_ena_w1tc.rtc_touch_approach_loop_done_w1tc = 1;
+        }
+    */
+
+    LPWR::regs().int_ena_rtc_w1tc().write(|w| unsafe {
+        w.touch_done()
+            .clear_bit_by_one()
+            .touch_active()
+            .clear_bit_by_one()
+            .touch_inactive()
+            .clear_bit_by_one()
+            .touch_scan_done()
+            .clear_bit_by_one()
+            .touch_timeout()
+            .clear_bit_by_one()
+            .touch_approach_loop_done()
+            .clear_bit_by_one()
+    });
+}
+
+// Clear touch sensor interrupt
+fn touch_ll_intr_clear() {
+    // taken from idf - esp32s3/hal/include/touch_sensor_ll.h
+    /*
+    if (int_mask & TOUCH_PAD_INTR_MASK_DONE) {
+        RTCCNTL.int_clr.rtc_touch_done = 1;
+    }
+    if (int_mask & TOUCH_PAD_INTR_MASK_ACTIVE) {
+        RTCCNTL.int_clr.rtc_touch_active = 1;
+    }
+    if (int_mask & TOUCH_PAD_INTR_MASK_INACTIVE) {
+        RTCCNTL.int_clr.rtc_touch_inactive = 1;
+    }
+    if (int_mask & TOUCH_PAD_INTR_MASK_SCAN_DONE) {
+        RTCCNTL.int_clr.rtc_touch_scan_done = 1;
+    }
+    if (int_mask & TOUCH_PAD_INTR_MASK_TIMEOUT) {
+        RTCCNTL.int_clr.rtc_touch_timeout = 1;
+    }
+    if (int_mask & TOUCH_PAD_INTR_MASK_PROXI_MEAS_DONE) {
+        RTCCNTL.int_clr.rtc_touch_approach_loop_done = 1;
+    }
+    */
+
+     LPWR::regs().int_clr().write(|w| unsafe {
+        w.touch_done()
+            .clear_bit_by_one()
+            .touch_active()
+            .clear_bit_by_one()
+            .touch_inactive()
+            .clear_bit_by_one()
+            .touch_scan_done()
+            .clear_bit_by_one()
+            .touch_timeout()
+            .clear_bit_by_one()
+            .touch_approach_loop_done()
+            .clear_bit_by_one()
+    });
+}
+
+// Disable touch sensor channel by bitmask.
+fn touch_ll_clear_channel_mask() {
+    /*
+     SENS.sar_touch_conf.touch_outen &= ~(disable_mask & TOUCH_PAD_BIT_MASK_ALL);
+    RTCCNTL.touch_scan_ctrl.touch_scan_pad_map  &= ~(disable_mask & TOUCH_PAD_BIT_MASK_ALL);
+     */
+
+    SENS::regs().sar_touch_conf().write(|w| unsafe {
+            w.sar_touch_outen().bits(0x0)
+    });
+
+    LPWR::regs().touch_scan_ctrl().write(|w| unsafe {
+        w.touch_scan_pad_map().bits(0x0)
+    });
+}
+
+// Clear all touch sensor status.
+fn touch_ll_clear_trigger_status_mask() {
+    /*  
+
+    SENS.sar_touch_conf.touch_status_clr = 1;
+
+     */
+
+    SENS::regs().sar_touch_conf().write(|w| unsafe {
+            w.sar_touch_status_clr().set_bit()
+    });
+}
+
+
+// Set touch sensor touch sensor times of charge and discharge.
+// @param meas_timers The times of charge and discharge in each measure process of touch channels.
+//                     The timer frequency is 8Mhz. Range: 0 ~ 0xffff.
+fn touch_ll_set_meas_times(meas_time: u16)
+{
+    /* 
+    //The times of charge and discharge in each measure process of touch channels.
+    HAL_FORCE_MODIFY_U32_REG_FIELD(RTCCNTL.touch_ctrl1, touch_meas_num, meas_time);
+    //the waiting cycles (in 8MHz) between TOUCH_START and TOUCH_XPD
+    HAL_FORCE_MODIFY_U32_REG_FIELD(RTCCNTL.touch_ctrl2, touch_xpd_wait, TOUCH_LL_PAD_MEASURE_WAIT_MAX); //wait volt stable
+    */
+     LPWR::regs().touch_ctrl1().write(|w| unsafe {
+        w.touch_meas_num().bits(meas_time)
+     });
+     LPWR::regs().touch_ctrl2().write(|w| unsafe {
+        w.touch_xpd_wait().bits(TOUCH_LL_PAD_MEASURE_WAIT_MAX)
+     });
+}
+
 
 mod asynch {
     use core::{
