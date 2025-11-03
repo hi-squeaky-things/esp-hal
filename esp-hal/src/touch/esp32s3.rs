@@ -512,6 +512,11 @@ fn internal_is_interrupt_set(touch_nr: u8) -> bool {
     internal_pins_touched() & (1 << touch_nr) != 0
 }
 
+
+
+/*
+Start op low level functions to deal with the touch sensor of the ESP32S3, alle code is replicated from the IDF C code.
+*/
 const TOUCH_LL_TIMER_FORCE_DONE: u8 = 0x3;
 const TOUCH_LL_TIMER_DONE: u8 = 0x0;
 const TOUCH_PAD_MEASURE_CYCLE_DEFAULT: u16 = 500;
