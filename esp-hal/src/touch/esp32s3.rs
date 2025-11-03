@@ -116,80 +116,16 @@ impl<Tm: TouchMode, Dm: DriverMode> Touch<'_, Tm, Dm> {
         // always on after chip startup.
 
         touch_ll_sleep_low_power(true);
-        //touch_ll_set_voltage_high(TOUCH_PAD_HIGH_VOLTAGE_THRESHOLD);
-        //touch_ll_set_voltage_low(TOUCH_PAD_LOW_VOLTAGE_THRESHOLD);
-        //touch_ll_set_voltage_attenuation(TOUCH_PAD_ATTEN_VOLTAGE_THRESHOLD);
-        //touch_ll_set_idle_channel_connect(TOUCH_PAD_IDLE_CH_CONNECT_DEFAULT);
+        touch_ll_set_voltage_high(TOUCH_PAD_HIGH_VOLTAGE_THRESHOLD);
+        touch_ll_set_voltage_low(TOUCH_PAD_LOW_VOLTAGE_THRESHOLD);
+        touch_ll_set_voltage_attenuation(TOUCH_PAD_ATTEN_VOLTAGE_THRESHOLD);
+        touch_ll_set_idle_channel_connect(TOUCH_PAD_IDLE_CH_CONNECT_DEFAULT);
 
-        /*
-
-
-        // set low and high treshold
-        unsafe {
-            rtccntl
-                .touch_ctrl2()
-                .write(|w| w.touch_drefh().bits(3).touch_drefl().bits(0));
-        }
-
-        // set voltage attenuation to 2
-        unsafe {
-            rtccntl.touch_ctrl2().write(|w| w.touch_drange().bits(2));
-        }
-        // touch_ll_set_idle_channel_connect 1
-        rtccntl
-            .touch_scan_ctrl()
-            .write(|w| w.touch_inactive_connection().set_bit());
-
-        // enable clock gate
-        rtccntl
-            .touch_ctrl2()
-            .write(|w| w.touch_clkgate_en().set_bit());
-
-        // reset benchmark
-        unsafe {
-            sens.sar_touch_chn_st()
-                .write(|w| w.sar_touch_channel_clr().bits((1 << 15) - 1));
-            rtccntl
-                .touch_approach()
-                .write(|w| w.touch_slp_channel_clr().set_bit());
-        }
-
-        unsafe {
-            rtccntl.touch_dac().write(|w| {
-                w.touch_pad0_dac()
-                    .bits(7)
-                    .touch_pad1_dac()
-                    .bits(7)
-                    .touch_pad2_dac()
-                    .bits(7)
-                    .touch_pad3_dac()
-                    .bits(7)
-                    .touch_pad4_dac()
-                    .bits(7)
-                    .touch_pad5_dac()
-                    .bits(7)
-                    .touch_pad6_dac()
-                    .bits(7)
-                    .touch_pad7_dac()
-                    .bits(7)
-                    .touch_pad8_dac()
-                    .bits(7)
-                    .touch_pad9_dac()
-                    .bits(7)
-            });
-            rtccntl.touch_dac1().write(|w| {
-                w.touch_pad10_dac()
-                    .bits(7)
-                    .touch_pad11_dac()
-                    .bits(7)
-                    .touch_pad12_dac()
-                    .bits(7)
-                    .touch_pad13_dac()
-                    .bits(7)
-                    .touch_pad14_dac()
-                    .bits(7)
-            });
-        }*/
+        // Clear touch channels to initialize the channel value (benchmark, raw_data).
+        // Note: Should call it after enable clock gate.
+        touch_ll_clkgate(true); // Enable clock gate for touch sensor.
+        touch_ll_reset_benchmark(TOUCH_PAD_MAX);
+        touch_ll_sleep_reset_benchmark();
     }
 
     /// Common parts of the continuous mode initialization.
@@ -643,10 +579,13 @@ enum TouchPadConnType {
     TOUCH_PAD_CONN_MAX,
 }
 
-const TOUCH_PAD_HIGH_VOLTAGE_THRESHOLD: TouchHighVolt = TouchHighVolt::TOUCH_HVOLT_2V7; //TOUCH_HVOLT_2V7)
-const TOUCH_PAD_LOW_VOLTAGE_THRESHOLD: TouchLowVolt = TouchLowVolt::TOUCH_LVOLT_0V5; //   (TOUCH_LVOLT_0V5)
-const TOUCH_PAD_ATTEN_VOLTAGE_THRESHOLD: TouchHVoltAtten = TouchHVoltAtten::TOUCH_HVOLT_ATTEN_0V5; // (TOUCH_HVOLT_ATTEN_0V5)
-const TOUCH_PAD_IDLE_CH_CONNECT_DEFAULT: TouchPadConnType = TouchPadConnType::TOUCH_PAD_CONN_GND; //  (TOUCH_PAD_CONN_GND)
+const TOUCH_PAD_HIGH_VOLTAGE_THRESHOLD: u8 = TouchHighVolt::TOUCH_HVOLT_2V7 as u8; //TOUCH_HVOLT_2V7)
+const TOUCH_PAD_LOW_VOLTAGE_THRESHOLD: u8 = TouchLowVolt::TOUCH_LVOLT_0V5 as u8; //   (TOUCH_LVOLT_0V5)
+const TOUCH_PAD_ATTEN_VOLTAGE_THRESHOLD: u8 = TouchHVoltAtten::TOUCH_HVOLT_ATTEN_0V5 as u8; // (TOUCH_HVOLT_ATTEN_0V5)
+const TOUCH_PAD_IDLE_CH_CONNECT_DEFAULT: bool = TouchPadConnType::TOUCH_PAD_CONN_GND as u8 == 1; //  (TOUCH_PAD_CONN_GND)
+const SOC_TOUCH_SENSOR_NUM: u8 = 14;
+const TOUCH_PAD_MAX: u8 = 14;
+const TOUCH_PAD_BIT_MASK_ALL: u16 = ((1 << SOC_TOUCH_SENSOR_NUM) - 1);
 
 // Stop touch sensor FSM timer.
 // The measurement action can be triggered by the hardware timer, as well as by the software instruction.
@@ -853,6 +792,117 @@ fn touch_ll_sleep_low_power(is_low_power: bool) {
     LPWR::regs()
         .touch_ctrl2()
         .write(|w| unsafe { w.touch_dbias().bit(is_low_power) });
+}
+
+// Set touch sensor high voltage threshold of chanrge.
+// The touch sensor measures the channel capacitance value by charging and discharging the channel.
+// So the high threshold should be less than the supply voltage.
+//
+// refh The high voltage threshold of chanrge.
+//
+fn touch_ll_set_voltage_high(reph: u8) {
+    /*
+    RTCCNTL.touch_ctrl2.touch_drefh = refh;
+     */
+
+    LPWR::regs()
+        .touch_ctrl2()
+        .write(|w| unsafe { w.touch_drefh().bits(reph) });
+}
+
+// Set touch sensor low voltage threshold of discharge.
+// The touch sensor measures the channel capacitance value by charging and discharging the channel.
+//
+// refl The low voltage threshold of discharge.
+//
+fn touch_ll_set_voltage_low(refl: u8) {
+    /*
+    RTCCNTL.touch_ctrl2.touch_drefl = refl;
+     */
+
+    LPWR::regs()
+        .touch_ctrl2()
+        .write(|w| unsafe { w.touch_drefl().bits(refl) });
+}
+
+// Set touch sensor high voltage attenuation of chanrge. The actual charge threshold is high voltage threshold minus attenuation value.
+// The touch sensor measures the channel capacitance value by charging and discharging the channel.
+// So the high threshold should be less than the supply voltage.
+fn touch_ll_set_voltage_attenuation(atten: u8) {
+    /*
+           RTCCNTL.touch_ctrl2.touch_drange = atten;
+    */
+
+    LPWR::regs()
+        .touch_ctrl2()
+        .write(|w| unsafe { w.touch_drange().bits(atten) });
+}
+
+// Set connection type of touch channel in idle status.
+//        When a channel is in measurement mode, other initialized channels are in idle mode.
+//        The touch channel is generally adjacent to the trace, so the connection state of the idle channel
+//        affects the stability and sensitivity of the test channel.
+//        The `CONN_HIGHZ`(high resistance) setting increases the sensitivity of touch channels. (false)
+//        The `CONN_GND`(grounding) setting increases the stability of touch channels. (true)
+//
+//      type  Select idle channel connect to high resistance state or ground.
+fn touch_ll_set_idle_channel_connect(conn_type: bool) {
+    /*
+
+    RTCCNTL.touch_scan_ctrl.touch_inactive_connection = type;
+     */
+    LPWR::regs()
+        .touch_scan_ctrl()
+        .write(|w| unsafe { w.touch_inactive_connection().bit(conn_type) });
+}
+// Enable/disable clock gate of touch sensor.
+//
+//  enable true/false.
+fn touch_ll_clkgate(enable: bool) {
+    /*
+    RTCCNTL.touch_ctrl2.touch_clkgate_en = enable; //enable touch clock for FSM. or force enable.
+     */
+
+    LPWR::regs()
+        .touch_ctrl2()
+        .write(|w| unsafe { w.touch_clkgate_en().bit(enable) });
+}
+
+// Force reset benchmark to raw data of touch sensor.
+//
+// If call this API, make sure enable clock gate(`touch_ll_clkgate`) first.
+// touch_num touch pad index
+//                  - TOUCH_PAD_MAX Reset basaline of all channels.
+//
+fn touch_ll_reset_benchmark(touch_num: u8) {
+    /*
+     if (touch_num == TOUCH_PAD_MAX) {
+        SENS.sar_touch_chn_st.touch_channel_clr = TOUCH_PAD_BIT_MASK_ALL;
+    } else {
+        SENS.sar_touch_chn_st.touch_channel_clr = (1U << touch_num);
+    }
+     */
+
+    // Clear touch channels to initialize the channel value (benchmark, raw_data).
+    if touch_num == TOUCH_PAD_MAX {
+        SENS::regs()
+            .sar_touch_chn_st()
+            .write(|w| unsafe { w.sar_touch_channel_clr().bits(TOUCH_PAD_BIT_MASK_ALL) });
+    } else {
+        SENS::regs()
+            .sar_touch_chn_st()
+            .write(|w| unsafe { w.sar_touch_channel_clr().bits(1 << touch_num) });
+    }
+}
+
+fn touch_ll_sleep_reset_benchmark() {
+    /*
+        RTCCNTL.touch_approach.touch_slp_channel_clr = 1;
+    */
+
+    LPWR::regs()
+        .touch_approach()
+        .write(|w| unsafe { w.touch_slp_channel_clr().set_bit() });
 }
 
 mod asynch {
