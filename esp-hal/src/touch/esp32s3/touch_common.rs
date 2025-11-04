@@ -78,4 +78,14 @@ pub fn touch_hal_config(touch_number: u8) {
     touch_ll_set_slope(touch_number, TOUCH_PAD_SLOPE_DEFAULT);
     touch_ll_set_tie_option(touch_number, TOUCH_PAD_TIE_OPT_DEFAULT);
 }
+
+
+ * Get touch sensor raw data (touch sensor counter value) from register. No block.
+ *
+ * @param touch_num touch pad index.
+ * @return touch_value pointer to accept touch sensor value.
+ */
+#define touch_hal_read_raw_data(touch_num) touch_ll_read_raw_data(touch_num)
+
+
 //

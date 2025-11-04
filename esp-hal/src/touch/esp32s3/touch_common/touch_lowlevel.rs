@@ -22,7 +22,7 @@ pub const TOUCH_PAD_THRESHOLD_MAX: u32 = 0x1FFFFF;
 pub const TOUCH_PAD_MEASURE_CYCLE_DEFAULT: u16 = 500;
 pub const TOUCH_PAD_SLEEP_CYCLE_DEFAULT: u16 = 0xF;
 pub const TOUCH_PAD_MAX: u8 = 14;
-pub const TOUCH_PAD_BIT_MASK_ALL: u16 = ((1 << SOC_TOUCH_SENSOR_NUM) - 1);
+pub const TOUCH_PAD_BIT_MASK_ALL: u16 = (1 << SOC_TOUCH_SENSOR_NUM) - 1;
 pub const TOUCH_PAD_SLOPE_DEFAULT: u8 = TouchCntSlope::TOUCH_PAD_SLOPE_7 as u8;
 pub const TOUCH_PAD_TIE_OPT_DEFAULT: TouchTieOption = TouchTieOption::TOUCH_PAD_TIE_OPT_LOW;
 
@@ -90,6 +90,15 @@ pub enum TouchPadConnType {
 pub enum TouchFSMMode {
     TOUCH_FSM_MODE_TIMER = 0, // To start touch FSM by timer
     TOUCH_FSM_MODE_SW = 1,    // To start touch FSM by software trigger
+}
+
+impl TouchFSMMode {
+    fn to_bool(&self) -> bool {
+        match self {
+            TouchFSMMode::TOUCH_FSM_MODE_TIMER => false,
+            TouchFSMMode::TOUCH_FSM_MODE_SW => true,
+        }
+    }
 }
 
 // Touch sensor charge/discharge speed
@@ -441,7 +450,7 @@ pub fn touch_ll_set_fsm_mode(mode: TouchFSMMode) {
     */
     LPWR::regs()
         .touch_ctrl2()
-        .write(|w| w.touch_start_force().bit(mode as i8 == 1));
+        .write(|w| w.touch_start_force().bit(mode.to_bool()));
 }
 
 // Get touch sensor FSM mode.
@@ -530,15 +539,10 @@ pub fn touch_ll_start_fsm() {
     LPWR::regs()
         .touch_ctrl2()
         .write(|w| unsafe { w.touch_timer_force_done().bits(TOUCH_LL_TIMER_DONE) });
-    if touch_ll_get_fsm_mode() == TouchFSMMode::TOUCH_FSM_MODE_SW {
-        LPWR::regs()
-            .touch_ctrl2()
-            .write(|w| w.touch_slp_timer_en().set_bit());
-    } else {
-        LPWR::regs()
-            .touch_ctrl2()
-            .write(|w| w.touch_slp_timer_en().clear_bit());
-    }
+    LPWR::regs().touch_ctrl2().write(|w| {
+        w.touch_slp_timer_en()
+            .bit(touch_ll_get_fsm_mode().to_bool())
+    });
 }
 
 // Set the trigger threshold of touch sensor.

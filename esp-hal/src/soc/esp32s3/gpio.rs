@@ -158,12 +158,6 @@ macro_rules! touch {
                 let rtcio = RTC_IO::regs();
                 let sens = SENS::regs();
 
-                enable_iomux_clk_gate();
-
-                /*
-                    done?
-                    rtc_gpio_init(gpio_num);
-                 */
 
                 // Pad to normal mode (not open-drain)
                 gpio.pin(self.rtc_number() as usize).write(|w| w.pad_driver().clear_bit());
@@ -191,16 +185,16 @@ macro_rules! touch {
                     // Select function "RTC function 1" (GPIO) for analog use
                     w.fun_sel().bits(0b00)
                 });
+
+                enable_iomux_clk_gate();
             }
 
-
-            
-
             fn touch_measurement(&self, _: $crate::private::Internal) -> u32 {
-                $crate::peripherals::SENS::regs()
-                    .$touch_out_reg()
-                    .read()
-                    .bits()
+
+                use $crate::peripherals::{SENS};
+                let sens = SENS::regs();
+                sens.sar_touch_conf().write(|w| unsafe { w.sar_touch_data_sel().bits(0x00) });
+                sens.sar_touch_status($touch_num as usize).read().data().bits()
             }
 
             fn touch_nr(&self, _: $crate::private::Internal) -> u8 {
@@ -208,7 +202,7 @@ macro_rules! touch {
             }
 
             fn set_threshold(&self, threshold: u16, _: $crate::private::Internal) {
-           
+
             }
         })+
     };
@@ -237,5 +231,3 @@ fn enable_iomux_clk_gate() {
         .sar_peri_clk_gate_conf()
         .modify(|_, w| w.iomux_clk_en().set_bit());
 }
-
-

@@ -115,6 +115,8 @@ impl<Tm: TouchMode, Dm: DriverMode> Touch<'_, Tm, Dm> {
     /// Common parts of the continuous mode initialization.
     fn initialize_common_continuous(config: Option<TouchConfig>) {
         Self::initialize_common(config);
+        touch_pad_set_fsm_mode(TouchFSMMode::TOUCH_FSM_MODE_TIMER);           
+      //  touch_pad_fsm_start();
     }
 }
 // Async mode and OneShot does not seem to be a sensible combination....
@@ -171,6 +173,12 @@ impl<'d> Touch<'d, Continuous, Blocking> {
             _touch_mode: PhantomData,
         }
     }
+
+    /// a
+    pub fn start_clock(&mut self) {
+        touch_pad_fsm_start();
+    }    
+
 }
 impl<'d> Touch<'d, Continuous, Async> {
     #[procmacros::doc_replace]
@@ -227,10 +235,9 @@ impl<P: TouchPin> TouchPad<P, OneShot, Blocking> {
     /// (Re-)Start a touch measurement on the pin. You can get the result by
     /// calling [`read`](Self::read) once it is finished.
     pub fn start_measurement(&mut self) {
-        touch_pad_config(self.pin.number());
         touch_pad_fsm_start();
         touch_pad_sw_start();
-        while !touch_pad_meas_is_done() {}
+      //  while !touch_pad_meas_is_done() {}
     }
 }
 impl<P: TouchPin, Tm: TouchMode, Dm: DriverMode> TouchPad<P, Tm, Dm> {
@@ -242,7 +249,8 @@ impl<P: TouchPin, Tm: TouchMode, Dm: DriverMode> TouchPad<P, Tm, Dm> {
     pub fn new(pin: P, _touch: &Touch<'_, Tm, Dm>) -> Self {
         // TODO revert this on drop
         pin.set_touch(Internal);
-
+        touch_pad_config(pin.number());
+    
         Self {
             pin,
             _mode: PhantomData,
