@@ -27,11 +27,10 @@
 
 use core::marker::PhantomData;
 
-
 use crate::{
     Async, Blocking, DriverMode,
     gpio::TouchPin,
-    peripherals::{LPWR, SENS, TOUCH},
+    peripherals::{LPWR, RTC_IO, SENS, TOUCH},
     private::{Internal, Sealed},
     rtc_cntl::Rtc,
 };
@@ -517,19 +516,26 @@ enum TouchFSMMode {
     TOUCH_FSM_MODE_SW = 1,    // To start touch FSM by software trigger
 }
 
-/** Touch sensor charge/discharge speed */
+// Touch sensor charge/discharge speed
 #[repr(i8)]
-enum TouchCntSlope{
-    TOUCH_PAD_SLOPE_0 = 0,       // Touch sensor charge / discharge speed, always zero 
-    TOUCH_PAD_SLOPE_1 = 1,       // Touch sensor charge / discharge speed, slowest 
-    TOUCH_PAD_SLOPE_2 = 2,       // Touch sensor charge / discharge speed
-    TOUCH_PAD_SLOPE_3 = 3,       // Touch sensor charge / discharge speed 
-    TOUCH_PAD_SLOPE_4 = 4,       // Touch sensor charge / discharge speed 
-    TOUCH_PAD_SLOPE_5 = 5,       // Touch sensor charge / discharge speed 
-    TOUCH_PAD_SLOPE_6 = 6,       // Touch sensor charge / discharge speed 
-    TOUCH_PAD_SLOPE_7 = 7,       // Touch sensor charge / discharge speed, fast 
+enum TouchCntSlope {
+    TOUCH_PAD_SLOPE_0 = 0, // Touch sensor charge / discharge speed, always zero
+    TOUCH_PAD_SLOPE_1 = 1, // Touch sensor charge / discharge speed, slowest
+    TOUCH_PAD_SLOPE_2 = 2, // Touch sensor charge / discharge speed
+    TOUCH_PAD_SLOPE_3 = 3, // Touch sensor charge / discharge speed
+    TOUCH_PAD_SLOPE_4 = 4, // Touch sensor charge / discharge speed
+    TOUCH_PAD_SLOPE_5 = 5, // Touch sensor charge / discharge speed
+    TOUCH_PAD_SLOPE_6 = 6, // Touch sensor charge / discharge speed
+    TOUCH_PAD_SLOPE_7 = 7, // Touch sensor charge / discharge speed, fast
 }
 
+// Touch sensor initial charge level
+#[repr(i8)]
+#[derive(PartialEq)]
+enum TouchTieOption {
+    TOUCH_PAD_TIE_OPT_LOW = 0,  // Initial level of charging voltage, low level
+    TOUCH_PAD_TIE_OPT_HIGH = 1, // Initial level of charging voltage, high level
+}
 
 const TOUCH_PAD_HIGH_VOLTAGE_THRESHOLD: u8 = TouchHighVolt::TOUCH_HVOLT_2V7 as u8; //TOUCH_HVOLT_2V7)
 const TOUCH_PAD_LOW_VOLTAGE_THRESHOLD: u8 = TouchLowVolt::TOUCH_LVOLT_0V5 as u8; //   (TOUCH_LVOLT_0V5)
@@ -539,8 +545,7 @@ const SOC_TOUCH_SENSOR_NUM: u8 = 14;
 const TOUCH_PAD_MAX: u8 = 14;
 const TOUCH_PAD_BIT_MASK_ALL: u16 = ((1 << SOC_TOUCH_SENSOR_NUM) - 1);
 const TOUCH_PAD_SLOPE_DEFAULT: u8 = TouchCntSlope::TOUCH_PAD_SLOPE_7 as u8;
-
-
+const TOUCH_PAD_TIE_OPT_DEFAULT: TouchTieOption = TouchTieOption::TOUCH_PAD_TIE_OPT_LOW;
 
 // Stop touch sensor FSM timer.
 // The measurement action can be triggered by the hardware timer, as well as by the software instruction.
@@ -989,8 +994,7 @@ fn touch_pad_meas_is_done() -> bool {
 fn touch_pad_config(touch_number: u8) {
     touch_pad_io_init(touch_number);
     touch_hal_config(touch_number);
-    // TODO
-    // touch_hal_set_channel_mask(touch_number);
+    touch_hal_set_channel_mask(touch_number);
 }
 
 fn touch_pad_io_init(touch_number: u8) {
@@ -1014,7 +1018,7 @@ fn touch_pad_io_init(touch_number: u8) {
 fn touch_hal_config(touch_number: u8) {
     touch_ll_set_threshold(touch_number, TOUCH_PAD_THRESHOLD_MAX);
     touch_ll_set_slope(touch_number, TOUCH_PAD_SLOPE_DEFAULT);
-    // touch_ll_set_tie_option(touch_number, TOUCH_PAD_TIE_OPT_DEFAULT);
+    touch_ll_set_tie_option(touch_number, TOUCH_PAD_TIE_OPT_DEFAULT);
 }
 
 // Set the trigger threshold of touch sensor.
@@ -1078,7 +1082,9 @@ fn touch_ll_set_slope(touch_number: u8, slope: u8) {
                 7 => w.touch_pad7_dac().bits(slope),
                 8 => w.touch_pad8_dac().bits(slope),
                 9 => w.touch_pad9_dac().bits(slope),
-                _ => { todo!() },
+                _ => {
+                    todo!()
+                }
             }
         });
     } else {
@@ -1089,11 +1095,69 @@ fn touch_ll_set_slope(touch_number: u8, slope: u8) {
                 12 => w.touch_pad12_dac().bits(slope),
                 13 => w.touch_pad13_dac().bits(slope),
                 14 => w.touch_pad14_dac().bits(slope),
-                _ => { todo!() },
+                _ => {
+                    todo!()
+                }
             }
         });
     }
 }
+
+// Set initial voltage state of touch channel for each measurement.
+//
+// @param touch_num Touch pad index.
+// @param opt Initial voltage state.
+fn touch_ll_set_tie_option(touch_number: u8, tie_option: TouchTieOption) {
+    /*
+        RTCIO.touch_pad[touch_num].tie_opt = opt;
+    */
+    match tie_option {
+        TouchTieOption::TOUCH_PAD_TIE_OPT_LOW => {
+            RTC_IO::regs()
+                .touch_pad(touch_number as usize)
+                .write(|w| unsafe { w.tie_opt().clear_bit() });
+        }
+        TouchTieOption::TOUCH_PAD_TIE_OPT_HIGH => {
+            RTC_IO::regs()
+                .touch_pad(touch_number as usize)
+                .write(|w| unsafe { w.tie_opt().set_bit() });
+        }
+    }
+}
+
+fn touch_hal_set_channel_mask(touch_number: u8) {
+    let mask = 1 << touch_number;
+    touch_ll_set_channel_mask(mask as u16); 
+}
+
+ // Enable touch sensor channel. Register touch channel into touch sensor measurement group.
+ // The working mode of the touch sensor is simultaneous measurement.
+ // This function will set the measure bits according to the given bitmask.
+ //
+ // @note  If set this mask, the FSM timer should be stop firsty.
+ // @note  The touch sensor that in scan map, should be deinit GPIO function firstly.
+ // @param enable_mask bitmask of touch sensor scan group.
+ //        e.g. TOUCH_PAD_NUM1 -> BIT(1)
+fn touch_ll_set_channel_mask(enable_mask: u16) {
+    /*
+        RTCCNTL.touch_scan_ctrl.touch_scan_pad_map  |= (enable_mask & TOUCH_PAD_BIT_MASK_ALL);
+    SENS.sar_touch_conf.touch_outen |= (enable_mask & TOUCH_PAD_BIT_MASK_ALL);
+ */
+
+    let mut mask =  LPWR::regs().touch_scan_ctrl().read().touch_scan_pad_map().bits();
+    mask |= enable_mask & TOUCH_PAD_BIT_MASK_ALL;
+
+    LPWR::regs().touch_scan_ctrl().write(|w| unsafe {
+        w.touch_scan_pad_map().bits(mask)
+    });
+
+    SENS::regs().sar_touch_conf().write(|w| unsafe {
+        w.sar_touch_outen().bits(mask)
+    });
+}
+
+
+
 
 mod asynch {
     use core::{
