@@ -27,6 +27,7 @@
 
 use core::marker::PhantomData;
 
+
 use crate::{
     Async, Blocking, DriverMode,
     gpio::TouchPin,
@@ -130,50 +131,7 @@ impl<Tm: TouchMode, Dm: DriverMode> Touch<'_, Tm, Dm> {
 
     /// Common parts of the continuous mode initialization.
     fn initialize_common_continuous(config: Option<TouchConfig>) {
-        let rtccntl = LPWR::regs();
-        let sens = SENS::regs();
-
-        // temp : ask for raw data
-        unsafe {
-            sens.sar_touch_conf()
-                .write(|w| w.sar_touch_data_sel().bits(0));
-        }
-
-        // Default nr of sleep cycles from IDF
-        let mut sleep_cyc = 0x1000;
-        if let Some(config) = config
-            && let Some(slp) = config.sleep_cycles
-        {
-            sleep_cyc = slp;
-        }
-
         Self::initialize_common(config);
-        rtccntl
-            .touch_scan_ctrl()
-            .write(|w| w.touch_denoise_en().set_bit());
-        unsafe {
-            rtccntl
-                .touch_ctrl2()
-                .write(|w| w.touch_timer_force_done().bits(0x3));
-            rtccntl
-                .touch_ctrl2()
-                .write(|w| w.touch_timer_force_done().bits(0x0));
-        }
-
-        rtccntl.touch_ctrl2().write(|w| {
-            w
-                // Configure FSM for timer mode
-                .touch_start_fsm_en()
-                .clear_bit()
-                .touch_start_force()
-                .clear_bit()
-                // start touch fsm
-                .touch_slp_timer_en()
-                .set_bit()
-        });
-        rtccntl
-            .touch_ctrl1()
-            .write(|w| unsafe { w.touch_sleep_cycles().bits(sleep_cyc) });
     }
 }
 // Async mode and OneShot does not seem to be a sensible combination....
@@ -195,34 +153,8 @@ impl<'d> Touch<'d, OneShot, Blocking> {
     /// # {after_snippet}
     /// ```
     pub fn one_shot_mode(touch_peripheral: TOUCH<'d>, config: Option<TouchConfig>) -> Self {
-        /*       let rtccntl = LPWR::regs();
-                let sens = SENS::regs();
-
-                // Default nr of sleep cycles from IDF
-                let mut sleep_cyc = 0x1000;
-                if let Some(config) = config
-                    && let Some(slp) = config.sleep_cycles
-                {
-                    sleep_cyc = slp;
-                }
-        */
         Self::initialize_common(config);
-        /*
-                rtccntl
-                    .touch_ctrl1()
-                    .write(|w| unsafe { w.touch_sleep_cycles().bits(sleep_cyc) });
-
-                rtccntl.touch_ctrl2().write(|w| {
-                    w
-                        // Configure FSM for SW mode
-                        .touch_start_fsm_en()
-                        .set_bit()
-                        .touch_start_en()
-                        .clear_bit()
-                        .touch_start_force()
-                        .set_bit()
-                });
-        */
+        touch_pad_set_fsm_mode(TouchFSMMode::TOUCH_FSM_MODE_SW);
         Self {
             _inner: touch_peripheral,
             _mode: PhantomData,
@@ -312,15 +244,12 @@ impl<P: TouchPin> TouchPad<P, OneShot, Blocking> {
     /// (Re-)Start a touch measurement on the pin. You can get the result by
     /// calling [`read`](Self::read) once it is finished.
     pub fn start_measurement(&mut self) {
-        let sens = SENS::regs();
-        let rtccntl = LPWR::regs();
-
-        rtccntl.touch_ctrl2().write(|w| {
-            w
-                // Configure FSM for SW mode
-                .touch_start_en()
-                .set_bit()
-        });
+        //TODO:
+        touch_pad_config(self.pin.number());
+        //touch_pad_set_cnt_mode();
+        touch_pad_fsm_start();
+        touch_pad_sw_start();
+        while !touch_pad_meas_is_done() {}
     }
 }
 impl<P: TouchPin, Tm: TouchMode, Dm: DriverMode> TouchPad<P, Tm, Dm> {
@@ -512,16 +441,20 @@ fn internal_is_interrupt_set(touch_nr: u8) -> bool {
     internal_pins_touched() & (1 << touch_nr) != 0
 }
 
-
-
 /*
 Start op low level functions to deal with the touch sensor of the ESP32S3, alle code is replicated from the IDF C code.
 */
+const TOUCH_LL_READ_RAW: u8 = 0x00;
+const TOUCH_LL_READ_BENCHMARK: u8 = 0x02;
+const TOUCH_LL_READ_SMOOTH: u8 = 0x03;
+
 const TOUCH_LL_TIMER_FORCE_DONE: u8 = 0x3;
 const TOUCH_LL_TIMER_DONE: u8 = 0x0;
 const TOUCH_PAD_MEASURE_CYCLE_DEFAULT: u16 = 500;
 const TOUCH_PAD_SLEEP_CYCLE_DEFAULT: u16 = 0xF;
 const TOUCH_LL_PAD_MEASURE_WAIT_MAX: u8 = 0xFF;
+
+const TOUCH_PAD_THRESHOLD_MAX: u32 = 0x1FFFFF;
 
 #[repr(i8)]
 enum TouchLowVolt {
@@ -539,9 +472,6 @@ enum TouchLowVolt {
 
     // Touch sensor low reference voltage, 0.8V
     TOUCH_LVOLT_0V8,
-
-    // Maximum
-    TOUCH_LVOLT_MAX,
 }
 
 #[repr(i8)]
@@ -560,9 +490,6 @@ enum TouchHighVolt {
 
     // Touch sensor high reference voltage, 2.7V
     TOUCH_HVOLT_2V7,
-
-    // Maximum
-    TOUCH_HVOLT_MAX,
 }
 
 // Touch sensor high reference voltage attenuation
@@ -573,7 +500,6 @@ enum TouchHVoltAtten {
     TOUCH_HVOLT_ATTEN_1V,        // 1.0V attenuation
     TOUCH_HVOLT_ATTEN_0V5,       // 0.5V attenuation
     TOUCH_HVOLT_ATTEN_0V,        //  0V attenuation
-    TOUCH_HVOLT_ATTEN_MAX,
 }
 
 // Touch channel idle state configuration
@@ -581,8 +507,29 @@ enum TouchHVoltAtten {
 enum TouchPadConnType {
     TOUCH_PAD_CONN_HIGHZ = 0, //touch channel is high resistance state
     TOUCH_PAD_CONN_GND = 1,   //touch channel is ground connection
-    TOUCH_PAD_CONN_MAX,
 }
+
+// Touch sensor FSM mode
+#[repr(i8)]
+#[derive(PartialEq)]
+enum TouchFSMMode {
+    TOUCH_FSM_MODE_TIMER = 0, // To start touch FSM by timer
+    TOUCH_FSM_MODE_SW = 1,    // To start touch FSM by software trigger
+}
+
+/** Touch sensor charge/discharge speed */
+#[repr(i8)]
+enum TouchCntSlope{
+    TOUCH_PAD_SLOPE_0 = 0,       // Touch sensor charge / discharge speed, always zero 
+    TOUCH_PAD_SLOPE_1 = 1,       // Touch sensor charge / discharge speed, slowest 
+    TOUCH_PAD_SLOPE_2 = 2,       // Touch sensor charge / discharge speed
+    TOUCH_PAD_SLOPE_3 = 3,       // Touch sensor charge / discharge speed 
+    TOUCH_PAD_SLOPE_4 = 4,       // Touch sensor charge / discharge speed 
+    TOUCH_PAD_SLOPE_5 = 5,       // Touch sensor charge / discharge speed 
+    TOUCH_PAD_SLOPE_6 = 6,       // Touch sensor charge / discharge speed 
+    TOUCH_PAD_SLOPE_7 = 7,       // Touch sensor charge / discharge speed, fast 
+}
+
 
 const TOUCH_PAD_HIGH_VOLTAGE_THRESHOLD: u8 = TouchHighVolt::TOUCH_HVOLT_2V7 as u8; //TOUCH_HVOLT_2V7)
 const TOUCH_PAD_LOW_VOLTAGE_THRESHOLD: u8 = TouchLowVolt::TOUCH_LVOLT_0V5 as u8; //   (TOUCH_LVOLT_0V5)
@@ -591,6 +538,9 @@ const TOUCH_PAD_IDLE_CH_CONNECT_DEFAULT: bool = TouchPadConnType::TOUCH_PAD_CONN
 const SOC_TOUCH_SENSOR_NUM: u8 = 14;
 const TOUCH_PAD_MAX: u8 = 14;
 const TOUCH_PAD_BIT_MASK_ALL: u16 = ((1 << SOC_TOUCH_SENSOR_NUM) - 1);
+const TOUCH_PAD_SLOPE_DEFAULT: u8 = TouchCntSlope::TOUCH_PAD_SLOPE_7 as u8;
+
+
 
 // Stop touch sensor FSM timer.
 // The measurement action can be triggered by the hardware timer, as well as by the software instruction.
@@ -908,6 +858,241 @@ fn touch_ll_sleep_reset_benchmark() {
     LPWR::regs()
         .touch_approach()
         .write(|w| unsafe { w.touch_slp_channel_clr().set_bit() });
+}
+
+// Set touch sensor FSM mode.
+//        The measurement action can be triggered by the hardware timer, as well as by the software instruction.
+//
+//  mode FSM mode.
+fn touch_ll_set_fsm_mode(mode: TouchFSMMode) {
+    /*
+    RTCCNTL.touch_ctrl2.touch_start_force = mode;
+    */
+    LPWR::regs()
+        .touch_ctrl2()
+        .write(|w| w.touch_start_force().bit(mode as i8 == 1));
+}
+
+// Get touch sensor FSM mode.
+//        The measurement action can be triggered by the hardware timer, as well as by the software instruction.
+//
+// @param mode FSM mode.
+
+fn touch_ll_get_fsm_mode() -> TouchFSMMode {
+    /*
+     *mode = (touch_fsm_mode_t)RTCCNTL.touch_ctrl2.touch_start_force;
+     */
+    if LPWR::regs()
+        .touch_ctrl2()
+        .read()
+        .touch_start_force()
+        .bit_is_set()
+    {
+        TouchFSMMode::TOUCH_FSM_MODE_SW
+    } else {
+        TouchFSMMode::TOUCH_FSM_MODE_TIMER
+    }
+}
+
+/**
+ * Get touch sensor raw data (touch sensor counter value) from register. No block.
+ *
+ * @param touch_num touch pad index.
+ * @return touch_value pointer to accept touch sensor value.
+ */
+fn touch_ll_read_raw_data(touch_num: u8) -> u32 {
+    /*
+        SENS.sar_touch_conf.touch_data_sel = TOUCH_LL_READ_RAW;
+    return SENS.sar_touch_status[touch_num - 1].touch_pad_data;
+     */
+    SENS::regs()
+        .sar_touch_conf()
+        .write(|w| unsafe { w.sar_touch_data_sel().bits(TOUCH_LL_READ_RAW) });
+    SENS::regs()
+        .sar_touch_status(touch_num as usize)
+        .read()
+        .data()
+        .bits()
+}
+
+// Trigger a touch sensor measurement, only support in SW mode of FSM.
+fn touch_ll_start_sw_meas() {
+    /*
+    RTCCNTL.touch_ctrl2.touch_start_en = 0;
+    RTCCNTL.touch_ctrl2.touch_start_en = 1;
+    */
+    LPWR::regs()
+        .touch_ctrl2()
+        .write(|w| w.touch_start_en().clear_bit());
+    LPWR::regs()
+        .touch_ctrl2()
+        .write(|w| w.touch_start_en().set_bit());
+}
+
+// Get touch sensor measure status. No block.
+//
+//  If touch sensors measure done.
+fn touch_ll_is_measure_done() -> bool {
+    /*
+    return (bool)SENS.sar_touch_chn_st.touch_meas_done;
+    */
+    SENS::regs()
+        .sar_touch_chn_st()
+        .read()
+        .sar_touch_meas_done()
+        .bit()
+}
+
+// Start touch sensor FSM timer.
+//        The measurement action can be triggered by the hardware timer, as well as by the software instruction.
+fn touch_ll_start_fsm() {
+    /*
+    RTCCNTL.touch_ctrl2.touch_timer_force_done = TOUCH_LL_TIMER_FORCE_DONE;
+    RTCCNTL.touch_ctrl2.touch_timer_force_done = TOUCH_LL_TIMER_DONE;
+    RTCCNTL.touch_ctrl2.touch_slp_timer_en = (RTCCNTL.touch_ctrl2.touch_start_force == TOUCH_FSM_MODE_TIMER ? 1 : 0);
+     */
+    // Touch timer trigger measurement and always wait measurement done.
+    // Force done for touch timer ensures that the timer always can get the measurement done signal.
+    LPWR::regs()
+        .touch_ctrl2()
+        .write(|w| unsafe { w.touch_timer_force_done().bits(TOUCH_LL_TIMER_FORCE_DONE) });
+    LPWR::regs()
+        .touch_ctrl2()
+        .write(|w| unsafe { w.touch_timer_force_done().bits(TOUCH_LL_TIMER_DONE) });
+    if touch_ll_get_fsm_mode() == TouchFSMMode::TOUCH_FSM_MODE_SW {
+        LPWR::regs()
+            .touch_ctrl2()
+            .write(|w| unsafe { w.touch_slp_timer_en().set_bit() });
+    } else {
+        LPWR::regs()
+            .touch_ctrl2()
+            .write(|w| unsafe { w.touch_slp_timer_en().clear_bit() });
+    }
+}
+
+fn touch_pad_set_fsm_mode(mode: TouchFSMMode) {
+    touch_ll_set_fsm_mode(mode);
+}
+
+fn touch_pad_fsm_start() {
+    touch_ll_start_fsm();
+}
+
+fn touch_pad_sw_start() {
+    touch_ll_start_sw_meas();
+}
+
+fn touch_pad_meas_is_done() -> bool {
+    touch_ll_is_measure_done()
+}
+
+fn touch_pad_config(touch_number: u8) {
+    touch_pad_io_init(touch_number);
+    touch_hal_config(touch_number);
+    // TODO
+    // touch_hal_set_channel_mask(touch_number);
+}
+
+fn touch_pad_io_init(touch_number: u8) {
+    //done in GPIO libray?
+
+    /*
+        esp_err_t touch_pad_io_init(touch_pad_t touch_num)
+    {
+        TOUCH_CHANNEL_CHECK(touch_num);
+        gpio_num_t gpio_num = TOUCH_GET_IO_NUM(touch_num);
+        rtc_gpio_init(gpio_num);
+        rtc_gpio_set_direction(gpio_num, RTC_GPIO_MODE_DISABLED);
+        rtc_gpio_pulldown_dis(gpio_num);
+        rtc_gpio_pullup_dis(gpio_num);
+        return ESP_OK;
+    }
+
+         */
+}
+
+fn touch_hal_config(touch_number: u8) {
+    touch_ll_set_threshold(touch_number, TOUCH_PAD_THRESHOLD_MAX);
+    touch_ll_set_slope(touch_number, TOUCH_PAD_SLOPE_DEFAULT);
+    // touch_ll_set_tie_option(touch_number, TOUCH_PAD_TIE_OPT_DEFAULT);
+}
+
+// Set the trigger threshold of touch sensor.
+// The threshold determines the sensitivity of the touch sensor.
+// The threshold is the original value of the trigger state minus the benchmark value.
+//
+// @note  If set "TOUCH_PAD_THRESHOLD_MAX", the touch is never be triggered.
+// @param touch_num touch pad index
+// @param threshold threshold of touch sensor.
+fn touch_ll_set_threshold(touch_number: u8, threshold: u32) {
+    /*
+    SENS.touch_thresh[touch_num - 1].thresh = threshold;}
+     */
+    SENS::regs()
+        .sar_touch_thres((touch_number - 1) as usize)
+        .write(|w| unsafe { w.bits(threshold) });
+}
+
+//Set touch sensor charge/discharge speed(currents) for each pad.
+//       If the slope is 0, the counter would always be zero.
+//       If the slope is 1, the charging and discharging would be slow. The measurement time becomes longer.
+//       If the slope is set 7, which is the maximum value, the charging and discharging would be fast.
+//       The measurement time becomes shorter.
+//
+//@note The higher the charge and discharge current, the greater the immunity of the touch channel,
+//      but it will increase the system power consumption.
+//@param touch_num Touch pad index.
+//@param slope touch pad charge/discharge speed(currents).
+//
+fn touch_ll_set_slope(touch_number: u8, slope: u8) {
+    /*
+
+
+    static inline void touch_ll_set_slope(touch_pad_t touch_num, touch_cnt_slope_t slope)
+    {
+    #define PAD_SLOP_MASK(val, num) ((val) << (29 - (num) * 3))
+        uint32_t curr_slop = 0;
+        if (touch_num < TOUCH_PAD_NUM10) {
+            curr_slop = RTCCNTL.touch_dac.val;
+            curr_slop &= ~PAD_SLOP_MASK(0x07, touch_num);  // clear the old value
+            RTCCNTL.touch_dac.val = curr_slop | PAD_SLOP_MASK(slope, touch_num);
+        } else {
+            curr_slop = RTCCNTL.touch_dac1.val;
+            curr_slop &= ~PAD_SLOP_MASK(0x07, touch_num - TOUCH_PAD_NUM10);  // clear the old value
+            RTCCNTL.touch_dac1.val = curr_slop | PAD_SLOP_MASK(slope, touch_num - TOUCH_PAD_NUM10);
+        }
+    #undef PAD_SLOP_MASK
+    }
+         */
+
+    if touch_number < 10 {
+        LPWR::regs().touch_dac().write(|w| unsafe {
+            match touch_number {
+                0 => w.touch_pad0_dac().bits(slope),
+                1 => w.touch_pad1_dac().bits(slope),
+                2 => w.touch_pad2_dac().bits(slope),
+                3 => w.touch_pad3_dac().bits(slope),
+                4 => w.touch_pad4_dac().bits(slope),
+                5 => w.touch_pad5_dac().bits(slope),
+                6 => w.touch_pad6_dac().bits(slope),
+                7 => w.touch_pad7_dac().bits(slope),
+                8 => w.touch_pad8_dac().bits(slope),
+                9 => w.touch_pad9_dac().bits(slope),
+                _ => { todo!() },
+            }
+        });
+    } else {
+        LPWR::regs().touch_dac1().write(|w| unsafe {
+            match touch_number {
+                10 => w.touch_pad10_dac().bits(slope),
+                11 => w.touch_pad11_dac().bits(slope),
+                12 => w.touch_pad12_dac().bits(slope),
+                13 => w.touch_pad13_dac().bits(slope),
+                14 => w.touch_pad14_dac().bits(slope),
+                _ => { todo!() },
+            }
+        });
+    }
 }
 
 mod asynch {

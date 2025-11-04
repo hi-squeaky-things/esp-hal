@@ -160,6 +160,15 @@ macro_rules! touch {
 
                 enable_iomux_clk_gate();
 
+                /*
+                    done?
+                    gpio_num_t gpio_num = TOUCH_GET_IO_NUM(touch_num);
+                    rtc_gpio_init(gpio_num);
+                    rtc_gpio_set_direction(gpio_num, RTC_GPIO_MODE_DISABLED);
+                    rtc_gpio_pulldown_dis(gpio_num);
+                    rtc_gpio_pullup_dis(gpio_num);
+                 */
+
                 // Pad to normal mode (not open-drain)
                 gpio.pin(self.rtc_number() as usize).write(|w| w.pad_driver().clear_bit());
 
@@ -190,6 +199,9 @@ macro_rules! touch {
                 });
             }
 
+
+            
+
             fn touch_measurement(&self, _: $crate::private::Internal) -> u32 {
                 $crate::peripherals::SENS::regs()
                     .$touch_out_reg()
@@ -202,11 +214,8 @@ macro_rules! touch {
             }
 
             fn set_threshold(&self, threshold: u16, _: $crate::private::Internal) {
-                $crate::peripherals::SENS::regs()
-                        .$touch_thres_reg().write(|w| unsafe {
-                            w.bits(threshold as u32)
-                        });
-                 }
+           
+            }
         })+
     };
 }
