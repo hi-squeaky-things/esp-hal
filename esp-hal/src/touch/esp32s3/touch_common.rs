@@ -57,20 +57,6 @@ pub fn touch_hal_set_channel_mask(touch_number: u8) {
 
 pub fn touch_pad_io_init(touch_number: u8) {
     //this is done in GPIO, no implementation here, see gpio.rs --> set_touch
-
-    /*
-        esp_err_t touch_pad_io_init(touch_pad_t touch_num)
-    {
-        TOUCH_CHANNEL_CHECK(touch_num);
-        gpio_num_t gpio_num = TOUCH_GET_IO_NUM(touch_num);
-        rtc_gpio_init(gpio_num);
-        rtc_gpio_set_direction(gpio_num, RTC_GPIO_MODE_DISABLED);
-        rtc_gpio_pulldown_dis(gpio_num);
-        rtc_gpio_pullup_dis(gpio_num);
-        return ESP_OK;
-    }
-
-         */
 }
 
 pub fn touch_hal_config(touch_number: u8) {
@@ -78,14 +64,3 @@ pub fn touch_hal_config(touch_number: u8) {
     touch_ll_set_slope(touch_number, TOUCH_PAD_SLOPE_DEFAULT);
     touch_ll_set_tie_option(touch_number, TOUCH_PAD_TIE_OPT_DEFAULT);
 }
-
-
- * Get touch sensor raw data (touch sensor counter value) from register. No block.
- *
- * @param touch_num touch pad index.
- * @return touch_value pointer to accept touch sensor value.
- */
-#define touch_hal_read_raw_data(touch_num) touch_ll_read_raw_data(touch_num)
-
-
-//
