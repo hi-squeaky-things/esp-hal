@@ -992,13 +992,14 @@ fn touch_pad_meas_is_done() -> bool {
 }
 
 fn touch_pad_config(touch_number: u8) {
+    
     touch_pad_io_init(touch_number);
     touch_hal_config(touch_number);
     touch_hal_set_channel_mask(touch_number);
 }
 
 fn touch_pad_io_init(touch_number: u8) {
-    //done in GPIO libray?
+    //this is done in GPIO, no implementation here, see gpio.rs --> set_touch
 
     /*
         esp_err_t touch_pad_io_init(touch_pad_t touch_num)

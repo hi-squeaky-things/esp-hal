@@ -162,11 +162,7 @@ macro_rules! touch {
 
                 /*
                     done?
-                    gpio_num_t gpio_num = TOUCH_GET_IO_NUM(touch_num);
                     rtc_gpio_init(gpio_num);
-                    rtc_gpio_set_direction(gpio_num, RTC_GPIO_MODE_DISABLED);
-                    rtc_gpio_pulldown_dis(gpio_num);
-                    rtc_gpio_pullup_dis(gpio_num);
                  */
 
                 // Pad to normal mode (not open-drain)
@@ -178,10 +174,6 @@ macro_rules! touch {
                     .write(|w| unsafe { w.enable_w1tc().bits(1 << self.rtc_number()) });
 
 
-                // set theshold to zero
-                sens.$touch_thres_reg().write(|w| unsafe {
-                            w.bits( 0b0 )
-                        });
 
                 rtcio.touch_pad($touch_num).write(|w| unsafe {
                     // give the touch pad some power
@@ -189,8 +181,10 @@ macro_rules! touch {
                     // clear input_enable
                     w.fun_ie().clear_bit();
                     // Connect pin to analog / RTC module instead of standard GPIO
+                    //  rtc_gpio_set_direction(gpio_num, RTC_GPIO_MODE_DISABLED) ?
                     w.mux_sel().set_bit();
                     // Disable pull-up and pull-down resistors on the pin
+                    // rtc_gpio_pulldown_dis(gpio_num) &  rtc_gpio_pullup_dis(gpio_num);
                     w.rue().clear_bit();
                     w.rde().clear_bit();
                     w.tie_opt().clear_bit();
