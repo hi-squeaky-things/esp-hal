@@ -20,10 +20,22 @@ use enumset::{EnumSet, EnumSetType};
 use esp_config::esp_config_int;
 use esp_hal::{asynch::AtomicWaker, system::Cpu};
 use esp_sync::NonReentrantMutex;
+use num_derive::FromPrimitive;
+#[doc(hidden)]
+pub(crate) use os_adapter::*;
+use portable_atomic::{AtomicUsize, Ordering};
+use procmacros::BuilderLite;
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+#[cfg(all(feature = "smoltcp", feature = "unstable"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
+use smoltcp::phy::{Device, DeviceCapabilities, RxToken, TxToken};
+pub use state::*;
+
 #[cfg(all(any(feature = "sniffer", feature = "esp-now"), feature = "unstable"))]
-use esp_wifi_sys::include::wifi_pkt_rx_ctrl_t;
+use crate::sys::include::wifi_pkt_rx_ctrl_t;
 #[cfg(feature = "wifi-eap")]
-use esp_wifi_sys::include::{
+use crate::sys::include::{
     esp_eap_client_clear_ca_cert,
     esp_eap_client_clear_certificate_and_key,
     esp_eap_client_clear_identity,
@@ -45,64 +57,52 @@ use esp_wifi_sys::include::{
 };
 #[cfg(all(feature = "sniffer", feature = "unstable"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
-use esp_wifi_sys::include::{
+use crate::sys::include::{
     esp_wifi_80211_tx,
     esp_wifi_set_promiscuous,
     esp_wifi_set_promiscuous_rx_cb,
     wifi_promiscuous_pkt_t,
     wifi_promiscuous_pkt_type_t,
 };
-use esp_wifi_sys::{
-    c_types::c_uint,
-    include::{
-        WIFI_INIT_CONFIG_MAGIC,
-        WIFI_PROTOCOL_11AX,
-        WIFI_PROTOCOL_11B,
-        WIFI_PROTOCOL_11G,
-        WIFI_PROTOCOL_11N,
-        WIFI_PROTOCOL_LR,
-        esp_wifi_connect_internal,
-        esp_wifi_disconnect_internal,
-        wifi_init_config_t,
-        wifi_scan_channel_bitmap_t,
-    },
-};
-use num_derive::FromPrimitive;
-#[doc(hidden)]
-pub(crate) use os_adapter::*;
-use portable_atomic::{AtomicUsize, Ordering};
-use procmacros::BuilderLite;
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
-#[cfg(all(feature = "smoltcp", feature = "unstable"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
-use smoltcp::phy::{Device, DeviceCapabilities, RxToken, TxToken};
-pub use state::*;
-
 use crate::{
     Controller,
     common_adapter::*,
     esp_wifi_result,
     hal::ram,
+    sys::{
+        c_types::c_uint,
+        include::{
+            WIFI_INIT_CONFIG_MAGIC,
+            WIFI_PROTOCOL_11AX,
+            WIFI_PROTOCOL_11B,
+            WIFI_PROTOCOL_11G,
+            WIFI_PROTOCOL_11N,
+            WIFI_PROTOCOL_LR,
+            esp_wifi_connect_internal,
+            esp_wifi_disconnect_internal,
+            wifi_init_config_t,
+            wifi_scan_channel_bitmap_t,
+        },
+    },
     wifi::private::PacketBuffer,
 };
 
 const MTU: usize = esp_config_int!(usize, "ESP_RADIO_CONFIG_WIFI_MTU");
 
 #[cfg(all(feature = "csi", esp32c6))]
-use crate::binary::include::wifi_csi_acquire_config_t;
+use crate::sys::include::wifi_csi_acquire_config_t;
 #[cfg(feature = "csi")]
 #[instability::unstable]
-pub use crate::binary::include::wifi_csi_info_t;
+pub use crate::sys::include::wifi_csi_info_t;
 #[cfg(feature = "csi")]
 #[instability::unstable]
-use crate::binary::include::{
+use crate::sys::include::{
     esp_wifi_set_csi,
     esp_wifi_set_csi_config,
     esp_wifi_set_csi_rx_cb,
     wifi_csi_config_t,
 };
-use crate::binary::{
+use crate::sys::{
     c_types,
     include::{
         self,
@@ -632,19 +632,19 @@ impl TtlsPhase2Method {
     fn to_raw(&self) -> u32 {
         match self {
             TtlsPhase2Method::Eap => {
-                esp_wifi_sys::include::esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_EAP
+                crate::sys::include::esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_EAP
             }
             TtlsPhase2Method::Mschapv2 => {
-                esp_wifi_sys::include::esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_MSCHAPV2
+                crate::sys::include::esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_MSCHAPV2
             }
             TtlsPhase2Method::Mschap => {
-                esp_wifi_sys::include::esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_MSCHAP
+                crate::sys::include::esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_MSCHAP
             }
             TtlsPhase2Method::Pap => {
-                esp_wifi_sys::include::esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_PAP
+                crate::sys::include::esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_PAP
             }
             TtlsPhase2Method::Chap => {
-                esp_wifi_sys::include::esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_CHAP
+                crate::sys::include::esp_eap_ttls_phase2_types_ESP_EAP_TTLS_PHASE2_CHAP
             }
         }
     }
@@ -1059,15 +1059,15 @@ impl From<WifiMode> for wifi_mode_t {
 }
 
 #[cfg(feature = "csi")]
-pub(crate) trait CsiCallback: FnMut(crate::binary::include::wifi_csi_info_t) {}
+pub(crate) trait CsiCallback: FnMut(crate::sys::include::wifi_csi_info_t) {}
 
 #[cfg(feature = "csi")]
-impl<T> CsiCallback for T where T: FnMut(crate::binary::include::wifi_csi_info_t) {}
+impl<T> CsiCallback for T where T: FnMut(crate::sys::include::wifi_csi_info_t) {}
 
 #[cfg(feature = "csi")]
 unsafe extern "C" fn csi_rx_cb<C: CsiCallback>(
     ctx: *mut crate::wifi::c_types::c_void,
-    data: *mut crate::binary::include::wifi_csi_info_t,
+    data: *mut crate::sys::include::wifi_csi_info_t,
 ) {
     unsafe {
         let csi_callback = &mut *(ctx as *mut C);
@@ -1415,7 +1415,7 @@ pub enum InternalWifiError {
     /// Invalid argument
     InvalidArg       = 0x102,
 
-    /// Wi-Fi driver was not installed by [esp_wifi_init](crate::binary::include::esp_wifi_init)
+    /// Wi-Fi driver was not installed by [esp_wifi_init](crate::sys::include::esp_wifi_init)
     NotInit          = 0x3001,
 
     /// Wi-Fi driver was not started by [esp_wifi_start]
@@ -1497,7 +1497,8 @@ pub fn sta_mac() -> [u8; 6] {
 #[cfg(esp32)]
 fn set_mac_time_update_cb(wifi: crate::hal::peripherals::WIFI<'_>) {
     use esp_phy::MacTimeExt;
-    use esp_wifi_sys::include::esp_wifi_internal_update_mac_time;
+
+    use crate::sys::include::esp_wifi_internal_update_mac_time;
     unsafe {
         wifi.set_mac_time_update_cb(|duration| {
             esp_wifi_internal_update_mac_time(duration.as_micros() as u32);
@@ -1538,14 +1539,14 @@ pub(crate) fn wifi_init(_wifi: crate::hal::peripherals::WIFI<'_>) -> Result<(), 
 pub(crate) fn coex_initialize() -> i32 {
     debug!("call coex-initialize");
     unsafe {
-        let res = crate::binary::include::esp_coex_adapter_register(
+        let res = crate::sys::include::esp_coex_adapter_register(
             core::ptr::addr_of_mut!(internal::G_COEX_ADAPTER_FUNCS).cast(),
         );
         if res != 0 {
             error!("Error: esp_coex_adapter_register {}", res);
             return res;
         }
-        let res = crate::binary::include::coex_pre_init();
+        let res = crate::sys::include::coex_pre_init();
         if res != 0 {
             error!("Error: coex_pre_init {}", res);
             return res;
@@ -1559,7 +1560,7 @@ pub(crate) unsafe extern "C" fn coex_init() -> i32 {
     {
         debug!("coex-init");
         #[allow(clippy::needless_return)]
-        return unsafe { crate::binary::include::coex_init() };
+        return unsafe { crate::sys::include::coex_init() };
     }
 
     #[cfg(not(coex))]
@@ -2412,10 +2413,9 @@ pub(crate) fn esp_wifi_send_data(interface: wifi_interface_t, data: &mut [u8]) {
     let len = data.len() as u16;
     let ptr = data.as_mut_ptr().cast();
 
-    let res = unsafe { esp_wifi_internal_tx(interface, ptr, len) };
+    let res = unsafe { esp_wifi_result!(esp_wifi_internal_tx(interface, ptr, len)) };
 
-    if res != 0 {
-        warn!("esp_wifi_internal_tx {}", res);
+    if res.is_err() {
         decrement_inflight_counter();
     } else {
         trace!("esp_wifi_internal_tx ok");
@@ -2435,11 +2435,15 @@ macro_rules! esp_wifi_result {
     ($value:expr) => {{
         use num_traits::FromPrimitive;
         let result = $value;
-        if result != esp_wifi_sys::include::ESP_OK as i32 {
-            warn!("{} returned an error: {}", stringify!($value), result);
-            Err(WifiError::InternalError(unwrap!(FromPrimitive::from_i32(
+        if result != $crate::sys::include::ESP_OK as i32 {
+            let error = unwrap!(FromPrimitive::from_i32(result));
+            warn!(
+                "{} returned an error: {:?} ({})",
+                stringify!($value),
+                error,
                 result
-            ))))
+            );
+            Err(WifiError::InternalError(error))
         } else {
             Ok::<(), WifiError>(())
         }
@@ -2551,10 +2555,10 @@ pub enum PowerSaveMode {
 
 pub(crate) fn apply_power_saving(ps: PowerSaveMode) -> Result<(), WifiError> {
     esp_wifi_result!(unsafe {
-        esp_wifi_sys::include::esp_wifi_set_ps(match ps {
-            PowerSaveMode::None => esp_wifi_sys::include::wifi_ps_type_t_WIFI_PS_NONE,
-            PowerSaveMode::Minimum => esp_wifi_sys::include::wifi_ps_type_t_WIFI_PS_MIN_MODEM,
-            PowerSaveMode::Maximum => esp_wifi_sys::include::wifi_ps_type_t_WIFI_PS_MAX_MODEM,
+        crate::sys::include::esp_wifi_set_ps(match ps {
+            PowerSaveMode::None => crate::sys::include::wifi_ps_type_t_WIFI_PS_NONE,
+            PowerSaveMode::Minimum => crate::sys::include::wifi_ps_type_t_WIFI_PS_MIN_MODEM,
+            PowerSaveMode::Maximum => crate::sys::include::wifi_ps_type_t_WIFI_PS_MAX_MODEM,
         })
     })?;
     Ok(())
@@ -2636,6 +2640,7 @@ impl OperatingClass {
     }
 }
 
+#[procmacros::doc_replace]
 /// Country information.
 ///
 /// Defaults to China (CN) with Operating Class "0".
@@ -2646,9 +2651,11 @@ impl OperatingClass {
 /// ## Example
 ///
 /// ```rust,no_run
+/// # {before_snippet}
 /// use esp_radio::wifi::{CountryInfo, OperatingClass};
 ///
 /// let country_info = CountryInfo::from(*b"CN").with_operating_class(OperatingClass::Indoors);
+/// # {after_snippet}
 /// ```
 ///
 /// For more information, see the [Wi-Fi Country Code in the ESP-IDF documentation](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/wifi.html#wi-fi-country-code).
@@ -2852,12 +2859,12 @@ pub fn new<'d>(
             wpa_crypto_funcs: g_wifi_default_wpa_crypto_funcs,
             static_rx_buf_num: config.static_rx_buf_num as _,
             dynamic_rx_buf_num: config.dynamic_rx_buf_num as _,
-            tx_buf_type: esp_wifi_sys::include::CONFIG_ESP_WIFI_TX_BUFFER_TYPE as i32,
+            tx_buf_type: crate::sys::include::CONFIG_ESP_WIFI_TX_BUFFER_TYPE as i32,
             static_tx_buf_num: config.static_tx_buf_num as _,
             dynamic_tx_buf_num: config.dynamic_tx_buf_num as _,
-            rx_mgmt_buf_type: esp_wifi_sys::include::CONFIG_ESP_WIFI_DYNAMIC_RX_MGMT_BUF as i32,
-            rx_mgmt_buf_num: esp_wifi_sys::include::CONFIG_ESP_WIFI_RX_MGMT_BUF_NUM_DEF as i32,
-            cache_tx_buf_num: esp_wifi_sys::include::WIFI_CACHE_TX_BUFFER_NUM as i32,
+            rx_mgmt_buf_type: crate::sys::include::CONFIG_ESP_WIFI_DYNAMIC_RX_MGMT_BUF as i32,
+            rx_mgmt_buf_num: crate::sys::include::CONFIG_ESP_WIFI_RX_MGMT_BUF_NUM_DEF as i32,
+            cache_tx_buf_num: crate::sys::include::WIFI_CACHE_TX_BUFFER_NUM as i32,
             csi_enable: cfg!(feature = "csi") as i32,
             ampdu_rx_enable: config.ampdu_rx_enable as _,
             ampdu_tx_enable: config.ampdu_tx_enable as _,
@@ -2866,11 +2873,11 @@ pub fn new<'d>(
             nano_enable: 0,
             rx_ba_win: config.rx_ba_win as _,
             wifi_task_core_id: Cpu::current() as _,
-            beacon_max_len: esp_wifi_sys::include::WIFI_SOFTAP_BEACON_MAX_LEN as i32,
-            mgmt_sbuf_num: esp_wifi_sys::include::WIFI_MGMT_SBUF_NUM as i32,
+            beacon_max_len: crate::sys::include::WIFI_SOFTAP_BEACON_MAX_LEN as i32,
+            mgmt_sbuf_num: crate::sys::include::WIFI_MGMT_SBUF_NUM as i32,
             feature_caps: internal::__ESP_RADIO_G_WIFI_FEATURE_CAPS,
             sta_disconnected_pm: false,
-            espnow_max_encrypt_num: esp_wifi_sys::include::CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM
+            espnow_max_encrypt_num: crate::sys::include::CONFIG_ESP_WIFI_ESPNOW_MAX_ENCRYPT_NUM
                 as i32,
 
             tx_hetb_queue_num: 3,
@@ -2959,6 +2966,7 @@ impl WifiController<'_> {
         Ok(())
     }
 
+    #[procmacros::doc_replace]
     /// Set the Wi-Fi protocol.
     ///
     /// This will set the wifi protocol to the desired protocol, the default for
@@ -2970,10 +2978,26 @@ impl WifiController<'_> {
     ///
     /// # Example:
     ///
-    /// ```
+    /// ```rust,no_run
+    /// # {before_snippet}
+    /// # use esp_radio::wifi::{AccessPointConfig, ModeConfig};
+    /// use esp_radio::wifi::Protocol;
+    ///
+    /// let esp_radio_controller = esp_radio::init().unwrap();
+    ///
+    /// let (mut wifi_controller, _interfaces) =
+    ///     esp_radio::wifi::new(&esp_radio_controller, peripherals.WIFI, Default::default())?;
+    ///
+    /// wifi_controller.set_config(&ModeConfig::AccessPoint(
+    ///     AccessPointConfig::default().with_ssid("esp-radio".into()),
+    /// ))?;
+    ///
     /// wifi_controller.set_protocol(Protocol::P802D11BGNLR.into());
+    /// # {after_snippet}
     /// ```
+    ///
     /// # Note
+    ///
     /// Calling this function before `set_config` will return an error.
     pub fn set_protocol(&mut self, protocols: EnumSet<Protocol>) -> Result<(), WifiError> {
         let protocol = protocols
@@ -3148,7 +3172,7 @@ impl WifiController<'_> {
     /// This will set the mode accordingly.
     /// You need to use [`Self::connect`] for connecting to an AP.
     ///
-    /// Passing [`ModeConfig::None`] will disable both, AP and STA mode.
+    /// Passing [`ModeConfig::None`] will disable both AP and STA modes.
     ///
     /// If you don't intend to use Wi-Fi anymore at all consider tearing down
     /// Wi-Fi completely.
