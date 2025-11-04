@@ -25,7 +25,9 @@
 //! - Touch sensor slope control
 //! - Deep Sleep support (wakeup from Deep Sleep)
 #[cfg_attr(esp32, path = "esp32.rs")]
-#[cfg_attr(esp32s3, path = "esp32s3.rs")]
+#[cfg_attr(esp32s3, path = "esp32s3/touch.rs")]
+
+
 pub(crate) mod touch_impl;
 
 pub use touch_impl::*;
