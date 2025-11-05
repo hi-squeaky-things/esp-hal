@@ -95,7 +95,8 @@ pub struct Touch<'d, Tm: TouchMode, Dm: DriverMode> {
 }
 impl<Tm: TouchMode, Dm: DriverMode> Touch<'_, Tm, Dm> {
     /// Common initialization of the touch peripheral.
-    fn initialize_common(config: Option<TouchConfig>) {
+    fn initialize_common(_config: Option<TouchConfig>) {
+       /* 
         let mut threshold_mode = false;
         let mut meas_dur = 0x7fff;
 
@@ -108,7 +109,7 @@ impl<Tm: TouchMode, Dm: DriverMode> Touch<'_, Tm, Dm> {
             if let Some(dur) = config.measurement_duration {
                 meas_dur = dur;
             }
-        }
+        }*/
         touch_init_hal();
     }
 
@@ -116,7 +117,6 @@ impl<Tm: TouchMode, Dm: DriverMode> Touch<'_, Tm, Dm> {
     fn initialize_common_continuous(config: Option<TouchConfig>) {
         Self::initialize_common(config);
         touch_pad_set_fsm_mode(TouchFSMMode::TOUCH_FSM_MODE_TIMER);           
-      //  touch_pad_fsm_start();
     }
 }
 // Async mode and OneShot does not seem to be a sensible combination....
@@ -176,6 +176,7 @@ impl<'d> Touch<'d, Continuous, Blocking> {
 
     /// a
     pub fn start_clock(&mut self) {
+        touch_pad_fsm_stop();
         touch_pad_fsm_start();
     }    
 
@@ -232,12 +233,13 @@ pub struct TouchPad<P: TouchPin, Tm: TouchMode, Dm: DriverMode> {
     _mode: PhantomData<Dm>,
 }
 impl<P: TouchPin> TouchPad<P, OneShot, Blocking> {
+
     /// (Re-)Start a touch measurement on the pin. You can get the result by
     /// calling [`read`](Self::read) once it is finished.
     pub fn start_measurement(&mut self) {
         touch_pad_fsm_start();
         touch_pad_sw_start();
-      //  while !touch_pad_meas_is_done() {}
+        while !touch_pad_meas_is_done() {}
     }
 }
 impl<P: TouchPin, Tm: TouchMode, Dm: DriverMode> TouchPad<P, Tm, Dm> {
@@ -250,6 +252,7 @@ impl<P: TouchPin, Tm: TouchMode, Dm: DriverMode> TouchPad<P, Tm, Dm> {
         // TODO revert this on drop
         pin.set_touch(Internal);
         touch_pad_config(pin.number());
+    //    touch_ll_set_threshold(pin.number(), TOUCH_PAD_THRESHOLD_MAX / 10);
     
         Self {
             pin,
@@ -293,7 +296,13 @@ impl<P: TouchPin, Tm: TouchMode> TouchPad<P, Tm, Blocking> {
     /// outdated, if it has been some time since the last call to that
     /// function.
     pub fn read(&mut self) -> u32 {
-        self.pin.touch_measurement(Internal)
+        touch_ll_read_raw_data(self.pin.number())
+       // self.pin.touch_measurement(Internal)
+    }
+
+    /// aaa
+    pub fn read_debug(&mut self) -> u16 {
+        touch_ll_read_trigger_status_mask()
     }
 
     /// check if ready

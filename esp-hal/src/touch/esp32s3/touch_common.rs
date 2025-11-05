@@ -1,8 +1,13 @@
-mod touch_lowlevel;
+// The HAL layer for touch sensor (common part), not for public API use
 
-// The HAL layer for Touch Sensor (common part)
+mod touch_lowlevel;
 pub use touch_lowlevel::*;
 
+/**
+Initialize touch module.
+
+If default parameter don't match the usage scenario, it can be changed after this function.
+*/
 pub fn touch_init_hal() {
     touch_ll_stop_fsm();
     touch_ll_intr_disable();
@@ -36,6 +41,11 @@ pub fn touch_pad_fsm_start() {
     touch_ll_start_fsm();
 }
 
+
+pub fn touch_pad_fsm_stop() {
+    touch_ll_stop_fsm();
+}
+    
 pub fn touch_pad_sw_start() {
     touch_ll_start_sw_meas();
 }
@@ -51,8 +61,8 @@ pub fn touch_pad_config(touch_number: u8) {
 }
 
 pub fn touch_hal_set_channel_mask(touch_number: u8) {
-        let mask = 1 << touch_number;
-        touch_ll_set_channel_mask(mask as u16);
+    let mask = 1 << touch_number;
+    touch_ll_set_channel_mask(mask as u16);
 }
 
 pub fn touch_pad_io_init(touch_number: u8) {

@@ -154,39 +154,36 @@ macro_rules! touch {
                 use $crate::peripherals::{GPIO, RTC_IO, SENS};
                 use $crate::gpio::RtcPin;
 
-                let gpio = GPIO::regs();
-                let rtcio = RTC_IO::regs();
-                let sens = SENS::regs();
+                        enable_iomux_clk_gate();
+
+                        let rtcio = RTC_IO::regs();
+
+                        // disable output
+                        rtcio.enable_w1tc().write(|w| unsafe { w.enable_w1tc().bits(1 << self.rtc_number()) });
+
+                        // disable open drain
+                        rtcio.pin(self.rtc_number() as usize).modify(|_,w| w.pad_driver().bit(false));
+
+                        rtcio.touch_pad($touch_num).modify(|_,w| {
+                            w.fun_ie().clear_bit();
+                            // give the touch pad some power
+                            w.xpd().set_bit();
+                            // Connect pin to analog / RTC module instead of standard GPIO
+                            w.mux_sel().set_bit();
+
+                            w.tie_opt().clear_bit();
+
+                            // Select function "RTC function 1" (GPIO) for analog use
+                            unsafe { w.fun_sel().bits(0b00) };
+
+                            // Disable pull-up and pull-down resistors on the pin
+                            w.rue().bit(false);
+                            w.rde().bit(false);
+
+                            w
+                        });
 
 
-                // Pad to normal mode (not open-drain)
-                gpio.pin(self.rtc_number() as usize).write(|w| w.pad_driver().clear_bit());
-
-                // clear output
-                rtcio
-                    .enable_w1tc()
-                    .write(|w| unsafe { w.enable_w1tc().bits(1 << self.rtc_number()) });
-
-
-
-                rtcio.touch_pad($touch_num).write(|w| unsafe {
-                    // give the touch pad some power
-                    w.xpd().set_bit();
-                    // clear input_enable
-                    w.fun_ie().clear_bit();
-                    // Connect pin to analog / RTC module instead of standard GPIO
-                    //  rtc_gpio_set_direction(gpio_num, RTC_GPIO_MODE_DISABLED) ?
-                    w.mux_sel().set_bit();
-                    // Disable pull-up and pull-down resistors on the pin
-                    // rtc_gpio_pulldown_dis(gpio_num) &  rtc_gpio_pullup_dis(gpio_num);
-                    w.rue().clear_bit();
-                    w.rde().clear_bit();
-                    w.tie_opt().clear_bit();
-                    // Select function "RTC function 1" (GPIO) for analog use
-                    w.fun_sel().bits(0b00)
-                });
-
-                enable_iomux_clk_gate();
             }
 
             fn touch_measurement(&self, _: $crate::private::Internal) -> u32 {

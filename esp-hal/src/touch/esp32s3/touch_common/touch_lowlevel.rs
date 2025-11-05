@@ -150,7 +150,26 @@ pub fn touch_ll_stop_fsm() {
     });
 }
 
-// To disable touch pad interrupt.
+
+
+/**
+ * Get touch sensor FSM timer state.
+ * @return
+ *     - true: FSM enabled
+ *     - false: FSM disabled
+ */
+pub fn touch_ll_get_fsm_state() -> bool 
+{
+    /* 
+    return (bool)RTCCNTL.touch_ctrl2.touch_slp_timer_en;
+    */
+    LPWR::regs().touch_ctrl2().read().touch_slp_timer_en().bit()
+}
+
+
+/**
+ *  To disable touch pad interrupt.
+ */
 pub fn touch_ll_intr_disable() {
     // taken from idf - esp32s3/hal/include/touch_sensor_ll.h
     /*
@@ -217,7 +236,9 @@ pub fn touch_ll_intr_disable() {
     });
 }
 
-// Clear touch sensor interrupt
+/**
+ *  Clear touch sensor interrupt
+ */
 pub fn touch_ll_intr_clear() {
     // taken from idf - esp32s3/hal/include/touch_sensor_ll.h
     /*
@@ -272,6 +293,20 @@ pub fn touch_ll_clear_channel_mask() {
         .touch_scan_ctrl()
         .write(|w| unsafe { w.touch_scan_pad_map().bits(0x0) });
 }
+
+
+/**
+ * Get the touch sensor trigger status, usually used in ISR to decide which pads are 'touched'.
+ *
+ * return The touch sensor status. e.g. Touch1 trigger status is `status_mask & (BIT1)`.
+ */
+pub fn touch_ll_read_trigger_status_mask() -> u16 
+{
+   // *status_mask = SENS.sar_touch_chn_st.touch_pad_active;
+   SENS::regs().sar_touch_chn_st().read().sar_touch_pad_active().bits()
+}
+
+
 
 // Clear all touch sensor status.
 pub fn touch_ll_clear_trigger_status_mask() {
@@ -541,7 +576,7 @@ pub fn touch_ll_start_fsm() {
         .write(|w| unsafe { w.touch_timer_force_done().bits(TOUCH_LL_TIMER_DONE) });
     LPWR::regs().touch_ctrl2().write(|w| {
         w.touch_slp_timer_en()
-            .bit(touch_ll_get_fsm_mode().to_bool())
+            .bit(!touch_ll_get_fsm_mode().to_bool())
     });
 }
 
@@ -648,15 +683,16 @@ pub fn touch_ll_set_tie_option(touch_number: u8, tie_option: TouchTieOption) {
         }
     }
 }
+/**
+Enable touch sensor channel. Register touch channel into touch sensor measurement group.
+The working mode of the touch sensor is simultaneous measurement.
+This function will set the measure bits according to the given bitmask.
 
-// Enable touch sensor channel. Register touch channel into touch sensor measurement group.
-// The working mode of the touch sensor is simultaneous measurement.
-// This function will set the measure bits according to the given bitmask.
-//
-// @note  If set this mask, the FSM timer should be stop firsty.
-// @note  The touch sensor that in scan map, should be deinit GPIO function firstly.
-// @param enable_mask bitmask of touch sensor scan group.
-//        e.g. TOUCH_PAD_NUM1 -> BIT(1)
+@note  If set this mask, the FSM timer should be stop firsty.
+@note  The touch sensor that in scan map, should be deinit GPIO function firstly.
+@param enable_mask bitmask of touch sensor scan group.
+       e.g. TOUCH_PAD_NUM1 -> BIT(1)
+*/
 pub fn touch_ll_set_channel_mask(enable_mask: u16) {
     /*
            RTCCNTL.touch_scan_ctrl.touch_scan_pad_map  |= (enable_mask & TOUCH_PAD_BIT_MASK_ALL);
