@@ -65,6 +65,10 @@ pub fn touch_hal_set_channel_mask(touch_number: u8) {
     touch_ll_set_channel_mask(mask as u16);
 }
 
+pub fn touch_pad_read_raw_data(touch_number: u8) -> u32 {
+    touch_ll_read_raw_data(touch_number)
+}
+
 pub fn touch_pad_io_init(touch_number: u8) {
     //this is done in GPIO, no implementation here, see gpio.rs --> set_touch
 }
